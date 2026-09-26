@@ -6,6 +6,7 @@ import { useStore } from "../store";
 
 const QUALITY = [
   { value: "large-v3", label: "Best (large-v3)" },
+  { value: "large-v3-turbo", label: "Turbo (large-v3-turbo)" },
   { value: "small", label: "Fast (small)" },
   { value: "tiny", label: "Test (tiny)" },
 ];

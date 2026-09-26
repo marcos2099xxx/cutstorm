@@ -5,6 +5,7 @@ services:
     build:
       context: .
       target: runtime
+    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
@@ -16,6 +17,9 @@ services:
       WHISPER_MODEL: large-v3
       WHISPER_COMPUTE: int8
       WHISPER_DEVICE: cpu
+      # Evict cached whisper/alignment models after this many seconds without
+      # transcription activity (frees ~3 GB while editing/exporting). 0 = off.
+      WHISPER_UNLOAD_AFTER_SEC: "900"
       MAX_UPLOAD_BYTES: "107374182400"
 
   test:

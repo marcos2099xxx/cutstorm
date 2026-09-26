@@ -1,4 +1,7 @@
+import { useRef, useState } from "react";
+import { importSubtitles } from "../api";
 import { getAudioMix } from "../audioMix";
+import { newJobId, openProgressWs } from "../progress";
 import { useStore } from "../store";
 
 function fmtTimestamp(t: number): string {
@@ -7,6 +10,11 @@ function fmtTimestamp(t: number): string {
   const s = Math.floor(t % 60);
   const cs = Math.floor((t - Math.floor(t)) * 100);
   return `${m}:${s.toString().padStart(2, "0")}.${cs.toString().padStart(2, "0")}`;
+}
+
+/** Accent/case-insensitive match key for the transcript search. */
+function norm(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
 export function SegmentList() {
@@ -19,11 +27,26 @@ export function SegmentList() {
   const deleteSegment = useStore((s) => s.deleteSegment);
   const currentTime = useStore((s) => s.currentTime);
   const hasVideo = useStore((s) => !!s.videoUrl);
+  const videoId = useStore((s) => s.videoId);
   const subsStreaming = useStore((s) => s.subsStreaming);
   const extraSubsStreaming = useStore((s) => s.extraSubsStreaming);
   const progressPhase = useStore((s) => s.progressPhase);
   const progressPercent = useStore((s) => s.progressPercent);
   const seekTo = useStore((s) => s.seekTo);
+  const setError = useStore((s) => s.setError);
+  const setProgress = useStore((s) => s.setProgress);
+  const replaceSourceSegments = useStore((s) => s.replaceSourceSegments);
+  const replaceInSegments = useStore((s) => s.replaceInSegments);
+  const mergeSegmentWithNext = useStore((s) => s.mergeSegmentWithNext);
+
+  const [query, setQuery] = useState("");
+  const [showReplace, setShowReplace] = useState(false);
+  const [findText, setFindText] = useState("");
+  const [replaceText, setReplaceText] = useState("");
+  const [alignImport, setAlignImport] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
+
   if (!hasVideo) return null;
 
   // Clicking a row jumps the playhead to that segment. Extra-track captions
@@ -42,6 +65,36 @@ export function SegmentList() {
     seekTo(t);
   }
 
+  async function onImportFile(file: File) {
+    if (!videoId) return;
+    if (
+      useStore.getState().segmentsSource.length > 0 &&
+      !window.confirm("Replace the current transcript with the imported subtitles?")
+    ) {
+      return;
+    }
+    setImporting(true);
+    setError(null);
+    const jobId = newJobId();
+    let ws: WebSocket | null = null;
+    try {
+      if (alignImport) {
+        setProgress("align", 0);
+        ws = await openProgressWs(jobId);
+      }
+      const res = await importSubtitles(videoId, file, { align: alignImport, jobId });
+      replaceSourceSegments(res.segments);
+      setSubtitleTrack("source");
+      setProgress("done", 100);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setProgress("idle", 0);
+    } finally {
+      try { ws?.close(); } catch { /* */ }
+      setImporting(false);
+    }
+  }
+
   const activeIdx = segments.findIndex(
     (seg) => currentTime >= seg.start && currentTime <= seg.end,
   );
@@ -53,6 +106,13 @@ export function SegmentList() {
   const transcribing =
     subtitleTrack === "extra" ? extraTranscribing : sourceTranscribing;
   const extraAvailable = segmentsExtra.length > 0 || extraSubsStreaming;
+
+  const q = norm(query.trim());
+  const rows = q
+    ? segments
+        .map((seg, i) => ({ seg, i }))
+        .filter(({ seg }) => norm(seg.text).includes(q))
+    : segments.map((seg, i) => ({ seg, i }));
 
   return (
     <div className="pane scroll" data-testid="segments-panel">
@@ -84,6 +144,90 @@ export function SegmentList() {
           {extraTranscribing && <span className="subtitle-track-dot" aria-label="transcribing" />}
         </button>
       </div>
+      <div className="subtitle-tools">
+        <input
+          type="text"
+          className="segment-search"
+          data-testid="segment-search"
+          placeholder="Search transcript…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {q && (
+          <span className="segment-search-count" data-testid="segment-search-count">
+            {rows.length} of {segments.length}
+          </span>
+        )}
+        <button
+          type="button"
+          className="segment-tool"
+          data-testid="segment-replace-toggle"
+          aria-pressed={showReplace}
+          onClick={() => setShowReplace((v) => !v)}
+        >
+          Replace
+        </button>
+        <button
+          type="button"
+          className="segment-tool"
+          data-testid="import-subs-button"
+          disabled={importing}
+          onClick={() => importRef.current?.click()}
+          title="Replace the transcript with an .srt/.vtt file"
+        >
+          {importing ? "Importing…" : "Import .srt/.vtt"}
+        </button>
+        <label
+          className="segment-align"
+          title="Run forced alignment against the audio for accurate word timings (slower)"
+        >
+          <input
+            type="checkbox"
+            data-testid="import-align"
+            checked={alignImport}
+            onChange={(e) => setAlignImport(e.target.checked)}
+          />
+          Align
+        </label>
+        <input
+          ref={importRef}
+          type="file"
+          accept=".srt,.vtt,text/plain"
+          data-testid="import-subs-input"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void onImportFile(f);
+            e.target.value = "";
+          }}
+        />
+      </div>
+      {showReplace && (
+        <div className="segment-replace" data-testid="segment-replace-panel">
+          <input
+            type="text"
+            data-testid="segment-replace-find"
+            placeholder="Find"
+            value={findText}
+            onChange={(e) => setFindText(e.target.value)}
+          />
+          <input
+            type="text"
+            data-testid="segment-replace-with"
+            placeholder="Replace with"
+            value={replaceText}
+            onChange={(e) => setReplaceText(e.target.value)}
+          />
+          <button
+            type="button"
+            data-testid="segment-replace-all"
+            disabled={!findText}
+            onClick={() => replaceInSegments(findText, replaceText)}
+          >
+            Replace all
+          </button>
+        </div>
+      )}
       <div className="pane-body compact">
         {transcribing && segments.length > 0 && (
           <div className="transcribing-strip" data-testid="transcribing-strip">
@@ -106,9 +250,13 @@ export function SegmentList() {
               No speech detected yet.
             </p>
           )
+        ) : rows.length === 0 ? (
+          <p style={{ color: "var(--fg-muted)", fontSize: 13 }} data-testid="segment-search-empty">
+            No matches for “{query.trim()}”.
+          </p>
         ) : (
           <div className="segments" data-testid="segments-list">
-            {segments.map((seg, i) => (
+            {rows.map(({ seg, i }) => (
               <div
                 key={i}
                 className={`segment${i === activeIdx ? " active" : ""}`}
@@ -170,6 +318,21 @@ export function SegmentList() {
                   }}
                   onChange={(e) => updateSegment(i, { text: e.target.value })}
                 />
+                <button
+                  type="button"
+                  className="segment-merge"
+                  data-testid={`segment-${i}-merge`}
+                  aria-label={`merge segment ${i} with next`}
+                  title="Merge with next segment"
+                  disabled={i + 1 >= segments.length}
+                  onClick={() => mergeSegmentWithNext(i)}
+                >
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M6 5v4a4 4 0 0 0 4 4h8" />
+                    <path d="M6 19v-4a4 4 0 0 1 4-4h8" />
+                    <path d="M15 6l3 3-3 3" />
+                  </svg>
+                </button>
                 <button
                   className="segment-del"
                   onClick={() => deleteSegment(i)}

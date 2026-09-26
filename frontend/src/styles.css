@@ -1225,7 +1225,7 @@ label {
 
 .segment {
   display: grid;
-  grid-template-columns: 22px 68px 1fr auto;
+  grid-template-columns: 22px 68px 1fr auto auto;
   gap: 8px;
   align-items: center;
   padding: 8px 10px;
@@ -1328,6 +1328,147 @@ label {
 .segment-del:hover {
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+.segment-merge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.segment:hover .segment-merge {
+  opacity: 1;
+}
+
+.segment-merge:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--fg);
+}
+
+.segment-merge:disabled {
+  cursor: default;
+  opacity: 0;
+}
+
+/* ---------- transcript tools: search / replace / import ---------- */
+
+.subtitle-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 0;
+  flex-wrap: wrap;
+}
+
+.segment-search {
+  flex: 1;
+  min-width: 90px;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+.segment-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.segment-search-count {
+  font-size: 11px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.segment-tool {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+  color: var(--fg-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.segment-tool:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--fg);
+}
+
+.segment-tool:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.segment-align {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.segment-replace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 0;
+}
+
+.segment-replace input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+.segment-replace input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.segment-replace button {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+  color: var(--fg-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.segment-replace button:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--fg);
+}
+
+.segment-replace button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* ---------- progress ---------- */

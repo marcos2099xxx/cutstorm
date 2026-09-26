@@ -33,7 +33,7 @@ Everything — URL download, Whisper transcription, subtitle rendering, ffmpeg e
     - [ ] Cookies for age-gated / private content
 - [x] **Transcribe locally**
     - [x] Whisper + WhisperX with word-level alignment
-    - [x] Pick model per-upload (tiny / small / large-v3)
+    - [x] Pick model per-upload (tiny / small / large-v3 / large-v3-turbo)
     - [x] Pick language or auto-detect (99+ languages)
     - [x] Segments stream live into the UI as Whisper emits them
     - [x] Survives a page reload mid-transcribe
@@ -43,6 +43,9 @@ Everything — URL download, Whisper transcription, subtitle rendering, ffmpeg e
     - [x] Inline edit text and timestamps
     - [x] Split segment at playhead
     - [x] Delete segment at playhead
+    - [x] Merge adjacent segments
+    - [x] Search and find/replace across the transcript
+    - [x] Import an existing `.srt` / `.vtt` (optionally forced-aligned to the audio)
     - [x] Undo / redo
 - [x] **Style the captions**
     - [x] Font family, size, bold, italic
@@ -56,9 +59,12 @@ Everything — URL download, Whisper transcription, subtitle rendering, ffmpeg e
     - [x] Custom crop with anchor points
     - [x] Trim in / out with timeline handles
     - [x] Auto-remove silences (threshold + padding)
+    - [x] Silence regions highlighted on the timeline
+    - [x] Original / cut preview toggle (plays the exported cut timeline)
     - [x] Mix an extra audio track (voiceover / music) with per-track volume
 - [x] **Export**
     - [x] MP4 with burned-in subtitles via ffmpeg
+    - [x] Fast draft encode (quicker libx264 preset) for iteration
     - [x] GIF export with Low / Medium / High quality presets
     - [x] Live progress over WebSocket
     - [ ] SRT / VTT sidecar download
@@ -96,6 +102,7 @@ Environment variables (see `docker-compose.yml`):
 | `WHISPER_MODEL`       | `tiny`       | Default model. Overridden per-upload from the UI.               |
 | `WHISPER_COMPUTE`     | `int8`       | CTranslate2 compute type (`int8`, `int8_float16`, `float16`).   |
 | `WHISPER_DEVICE`      | `cpu`        | `cpu` or `cuda`. CUDA needs nvidia-container-toolkit on host.   |
+| `WHISPER_UNLOAD_AFTER_SEC` | `900`   | Evict cached models after N seconds idle (0 disables).          |
 | `WHISPERX_SKIP_ALIGN` | `0`          | `1` skips wav2vec2 alignment (faster, coarser word timing).     |
 | `MAX_FETCH_SEC`       | `900`        | Max duration for URL import. Longer → 413.                       |
 | `MAX_UPLOAD_BYTES`    | `2147483648` | Max upload size (2 GB default).                                 |

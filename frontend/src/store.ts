@@ -204,6 +204,9 @@ type Actions = {
   setJobId: (id: string | null) => void;
   mergeSegments: (segs: Segment[]) => void;
   appendSegment: (seg: Segment, index: number) => void;
+  replaceSourceSegments: (segs: Segment[]) => void;
+  replaceInSegments: (find: string, replace: string) => void;
+  mergeSegmentWithNext: (i: number) => void;
   newProject: () => Promise<void>;
   playPause: () => void;
   nudge: (deltaSec: number) => void;
@@ -503,6 +506,43 @@ export const useStore = create<State & Actions>()(
         return s.subtitleTrack === "source"
           ? { segments: next, segmentsSource: next }
           : { segmentsSource: next };
+      }),
+      replaceSourceSegments: (segs) => set((s) => ({
+        segmentsSource: segs,
+        segments: s.subtitleTrack === "extra" ? s.segments : segs,
+      })),
+      replaceInSegments: (find, replacement) => set((s) => {
+        if (!find) return {};
+        const apply = (list: Segment[]) =>
+          list.map((seg) => ({
+            ...seg,
+            text: seg.text.split(find).join(replacement),
+            words: seg.words?.map((w) => ({
+              ...w,
+              text: w.text.split(find).join(replacement),
+            })),
+          }));
+        const next = apply(s.segments);
+        return s.subtitleTrack === "extra"
+          ? { segments: next, segmentsExtra: next }
+          : { segments: next, segmentsSource: next };
+      }),
+      mergeSegmentWithNext: (i) => set((s) => {
+        const list = s.segments;
+        if (i < 0 || i + 1 >= list.length) return {};
+        const a = list[i];
+        const b = list[i + 1];
+        const words = [...(a.words ?? []), ...(b.words ?? [])];
+        const merged: Segment = {
+          start: a.start,
+          end: b.end,
+          text: `${a.text} ${b.text}`.trim(),
+          ...(words.length ? { words } : {}),
+        };
+        const next = [...list.slice(0, i), merged, ...list.slice(i + 2)];
+        return s.subtitleTrack === "extra"
+          ? { segments: next, segmentsExtra: next }
+          : { segments: next, segmentsSource: next };
       }),
       setCustomCrop: (patch) => set((s) => {
         const next = { ...s.canvas.custom, ...patch };

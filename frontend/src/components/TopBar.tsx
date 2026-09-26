@@ -40,6 +40,7 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
   const newProject = useStore((s) => s.newProject);
   const [format, setFormat] = useState<ExportFormat>("mp4");
   const [gifQuality, setGifQuality] = useState<GifQuality>("medium");
+  const [encodeSpeed, setEncodeSpeed] = useState<"quality" | "fast">("quality");
 
   async function onExport() {
     if (!videoId) return;
@@ -66,6 +67,7 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
         audio,
         format,
         gifQuality,
+        encodeSpeed,
         watermark,
         subtitleTrack,
       });
@@ -144,6 +146,20 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
                   <option value="low">Low · 320px · 10fps</option>
                   <option value="medium">Medium · 480px · 15fps</option>
                   <option value="high">High · 720px · 20fps</option>
+                </select>
+              )}
+              {format === "mp4" && (
+                <select
+                  className="export-speed"
+                  data-testid="export-speed"
+                  value={encodeSpeed}
+                  onChange={(e) => setEncodeSpeed(e.target.value as "quality" | "fast")}
+                  disabled={busy !== "idle"}
+                  aria-label="Export quality/speed"
+                  title="Fast uses a quicker encoder preset (medium/CRF 18) for drafts"
+                >
+                  <option value="quality">High quality</option>
+                  <option value="fast">Fast draft</option>
                 </select>
               )}
               <button

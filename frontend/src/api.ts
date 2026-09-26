@@ -163,6 +163,7 @@ export async function exportVideo(args: {
   audio?: AudioConfig;
   format?: ExportFormat;
   gifQuality?: GifQuality;
+  encodeSpeed?: "quality" | "fast";
   watermark?: boolean;
   subtitleTrack?: "source" | "extra";
 }): Promise<ExportResponse> {
@@ -196,6 +197,7 @@ export async function exportVideo(args: {
       },
       format: args.format ?? "mp4",
       gif_quality: args.gifQuality ?? "medium",
+      encode_speed: args.encodeSpeed ?? "quality",
       watermark: args.watermark !== false,
       subtitle_track: args.subtitleTrack ?? "source",
     }),
@@ -247,6 +249,26 @@ export async function transcribeExtra(
 
 export function downloadUrl(videoId: string, format: ExportFormat = "mp4"): string {
   return `${API_BASE}/api/download/${videoId}?format=${format}`;
+}
+
+export async function importSubtitles(
+  videoId: string,
+  file: File,
+  opts: { align?: boolean; jobId?: string } = {},
+): Promise<TranscribeResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("align", String(opts.align ?? false));
+  const qs = opts.jobId ? `?job_id=${encodeURIComponent(opts.jobId)}` : "";
+  const res = await fetch(
+    `${API_BASE}/api/transcripts/${encodeURIComponent(videoId)}/import${qs}`,
+    { method: "POST", body: fd },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`import failed: ${res.status} ${detail}`);
+  }
+  return res.json();
 }
 
 export type TranscriptSummary = {
