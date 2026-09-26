@@ -1,33 +1,6 @@
-import type { Segment } from "../store";
 import { useStore } from "../store";
 import { FontPicker } from "./FontPicker";
-
-function computeTrimPreview(
-  segments: Segment[],
-  duration: number,
-  threshold: number,
-  padding: number,
-): { cuts: number; trimmed: number } {
-  const words = segments.flatMap((s) => s.words ?? []).sort((a, b) => a.start - b.start);
-  if (words.length === 0) return { cuts: 0, trimmed: 0 };
-  let cuts = 0;
-  let kept = 0;
-  let curStart = Math.max(0, words[0].start - padding);
-  let curEnd = words[0].end + padding;
-  for (let i = 1; i < words.length; i++) {
-    const gap = words[i].start - words[i - 1].end;
-    if (gap > threshold) {
-      cuts += 1;
-      kept += curEnd - curStart;
-      curStart = Math.max(curEnd, words[i].start - padding);
-    }
-    curEnd = Math.max(curEnd, words[i].end + padding);
-  }
-  curEnd = Math.min(duration || curEnd, curEnd);
-  kept += Math.max(0, curEnd - curStart);
-  const trimmed = Math.max(0, (duration || 0) - kept);
-  return { cuts, trimmed };
-}
+import { computeKeepsForRange, keepsDuration } from "../silence";
 
 export function StylePanel() {
   const style = useStore((s) => s.style);
@@ -35,7 +8,8 @@ export function StylePanel() {
   const hasVideo = useStore((s) => !!s.videoUrl);
   const trim = useStore((s) => s.trim);
   const setTrim = useStore((s) => s.setTrim);
-  const segments = useStore((s) => s.segments);
+  const segmentsSource = useStore((s) => s.segmentsSource);
+  const trimRange = useStore((s) => s.trimRange);
   const duration = useStore((s) => s.duration);
   const canvas = useStore((s) => s.canvas);
   const setCanvas = useStore((s) => s.setCanvas);
@@ -53,7 +27,17 @@ export function StylePanel() {
 
   if (!hasVideo) return null;
 
-  const trimPreview = computeTrimPreview(segments, duration, trim.threshold_sec, trim.padding_sec);
+  // Silence cuts always come from the source transcript (export parity).
+  const trimOut = trimRange.out_sec > 0 ? trimRange.out_sec : duration;
+  const clipDuration = Math.max(0, trimOut - trimRange.in_sec);
+  const keeps = computeKeepsForRange(
+    segmentsSource, trimRange.in_sec, trimOut,
+    trim.threshold_sec, trim.padding_sec,
+  );
+  const trimPreview = {
+    cuts: Math.max(0, keeps.length - 1),
+    trimmed: Math.max(0, clipDuration - keepsDuration(keeps)),
+  };
 
   const presets: Array<{ key: "source" | "9:16" | "16:9" | "1:1" | "4:5"; label: string }> = isAudioOnly
     ? [
@@ -517,7 +501,7 @@ export function StylePanel() {
               <div className="trim-preview" data-testid="trim-preview">
                 <strong>{trimPreview.cuts}</strong> gaps will be cut ·{" "}
                 <strong>−{trimPreview.trimmed.toFixed(1)}s</strong> (
-                {Math.round((trimPreview.trimmed / Math.max(duration, 0.01)) * 100)}% of video)
+                {Math.round((trimPreview.trimmed / Math.max(clipDuration, 0.01)) * 100)}% of video)
               </div>
             </>
           )}

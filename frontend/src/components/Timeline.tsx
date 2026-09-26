@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelTranscribeExtra,
   transcribeExtra,
@@ -6,6 +6,7 @@ import {
 } from "../api";
 import { clearExtraBlob, getExtraBlob, setExtraBlob } from "../extraBlobs";
 import { newJobId, openProgressWs } from "../progress";
+import { computeKeepsForRange, cutGaps, keepsDuration } from "../silence";
 import { useStore } from "../store";
 import { computePeaks } from "../waveform";
 
@@ -32,11 +33,31 @@ export function Timeline() {
   const setAudio = useStore((s) => s.setAudio);
   const setError = useStore((s) => s.setError);
   const setLoop = useStore((s) => s.setLoop);
-
-  if (!videoUrl || !duration) return null;
+  const trim = useStore((s) => s.trim);
+  const segmentsSource = useStore((s) => s.segmentsSource);
 
   const outSec = trimRange.out_sec > 0 ? trimRange.out_sec : duration;
   const inSec = trimRange.in_sec;
+
+  // Silence bands: where the export will cut when "Trim silences" is on.
+  const cutInfo = useMemo(() => {
+    if (!trim.enabled || !duration) return { bands: [], count: 0, seconds: 0 };
+    const keeps = computeKeepsForRange(
+      segmentsSource, inSec, outSec, trim.threshold_sec, trim.padding_sec,
+    );
+    const gaps = cutGaps(keeps, inSec, outSec);
+    const bands = gaps.map(([s, e]) => ({
+      left: (s / duration) * 100,
+      width: ((e - s) / duration) * 100,
+    }));
+    return { bands, count: gaps.length, seconds: keepsDuration(gaps) };
+  }, [
+    trim.enabled, trim.threshold_sec, trim.padding_sec,
+    segmentsSource, inSec, outSec, duration,
+  ]);
+
+  if (!videoUrl || !duration) return null;
+
   const kept = Math.max(0, outSec - inSec);
   const thumbsUrl = videoId && !isAudioOnly
     ? `/api/thumbnails/${videoId}?count=${THUMB_COUNT}&width=${THUMB_WIDTH}`
@@ -54,6 +75,7 @@ export function Timeline() {
         outStored={trimRange.out_sec}
         thumbsUrl={thumbsUrl}
         thumbCount={THUMB_COUNT}
+        cutBands={cutInfo.bands}
         onChange={(patch) => setTrimRange(patch)}
       />
       <div className="timeline-meta" data-testid="timeline-meta">
@@ -62,6 +84,14 @@ export function Timeline() {
         <span>{fmt(outSec)}</span>
         <span style={{ opacity: 0.4 }}>·</span>
         <span>{kept.toFixed(2)}s kept</span>
+        {cutInfo.count > 0 && (
+          <>
+            <span style={{ opacity: 0.4 }}>·</span>
+            <span className="timeline-cuts" data-testid="timeline-cuts">
+              {cutInfo.count} cuts · −{cutInfo.seconds.toFixed(1)}s
+            </span>
+          </>
+        )}
         <span style={{ opacity: 0.4 }}>·</span>
         <label className="loop-toggle" data-testid="loop-toggle-label" title="Loop the selected slice across the extra audio's full duration (Coub mode)">
           <input
@@ -91,6 +121,7 @@ export function Timeline() {
         duration={duration}
         inSec={inSec}
         outSec={outSec}
+        cutBands={cutInfo.bands}
       />
       <ExtraTrack
         audio={audio}
@@ -111,6 +142,7 @@ function TrimBar({
   currentTime,
   outStored,
   thumbsUrl,
+  cutBands,
   onChange,
 }: {
   duration: number;
@@ -120,6 +152,7 @@ function TrimBar({
   outStored: number;
   thumbsUrl: string | null;
   thumbCount: number;
+  cutBands: Array<{ left: number; width: number }>;
   onChange: (patch: { in_sec?: number; out_sec?: number }) => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -195,6 +228,14 @@ function TrimBar({
         className="trim-keep-frame"
         style={{ left: `${inPct}%`, width: `${Math.max(0, outPct - inPct)}%` }}
       />
+      {cutBands.map((b, i) => (
+        <div
+          key={i}
+          className="trim-cut"
+          data-testid={`trim-cut-${i}`}
+          style={{ left: `${b.left}%`, width: `${b.width}%` }}
+        />
+      ))}
       <div className="trim-playhead" style={{ left: `${ctPct}%` }} data-testid="trim-playhead" />
       <div
         className="trim-handle trim-handle-in"
@@ -224,6 +265,7 @@ function SourceTrack({
   duration,
   inSec,
   outSec,
+  cutBands,
 }: {
   videoId: string | null;
   volume: number;
@@ -232,6 +274,7 @@ function SourceTrack({
   duration: number;
   inSec: number;
   outSec: number;
+  cutBands: Array<{ left: number; width: number }>;
 }) {
   const peaks = useServerPeaks(videoId);
   const inPct = (inSec / duration) * 100;
@@ -250,6 +293,7 @@ function SourceTrack({
           inPct={inPct}
           outPct={outPct}
           currentPct={ctPct}
+          cutBands={cutBands}
         />
       </div>
     </div>
@@ -522,6 +566,7 @@ function WaveformBar({
   outPct,
   currentPct,
   variant,
+  cutBands,
 }: {
   peaks: Float32Array | null;
   /** % of the wave-wrap width that the peaks actually occupy (rest is rail). */
@@ -532,6 +577,8 @@ function WaveformBar({
   outPct: number;
   currentPct: number | null;
   variant?: "source" | "extra";
+  /** Silence regions that will be cut on export, in % of full duration. */
+  cutBands?: Array<{ left: number; width: number }>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -587,6 +634,14 @@ function WaveformBar({
         className="wave-dim wave-dim-right"
         style={{ left: `${outPct}%`, width: `${Math.max(0, 100 - outPct)}%` }}
       />
+      {cutBands?.map((b, i) => (
+        <div
+          key={i}
+          className="wave-cut"
+          data-testid={`wave-cut-${i}`}
+          style={{ left: `${b.left}%`, width: `${b.width}%` }}
+        />
+      ))}
       {currentPct !== null && (
         <div className="wave-playhead" style={{ left: `${currentPct}%` }} />
       )}

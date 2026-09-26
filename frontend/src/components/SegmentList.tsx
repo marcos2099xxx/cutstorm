@@ -1,3 +1,4 @@
+import { getAudioMix } from "../audioMix";
 import { useStore } from "../store";
 
 function fmtTimestamp(t: number): string {
@@ -22,7 +23,24 @@ export function SegmentList() {
   const extraSubsStreaming = useStore((s) => s.extraSubsStreaming);
   const progressPhase = useStore((s) => s.progressPhase);
   const progressPercent = useStore((s) => s.progressPercent);
+  const seekTo = useStore((s) => s.seekTo);
   if (!hasVideo) return null;
+
+  // Clicking a row jumps the playhead to that segment. Extra-track captions
+  // live on the extra-audio timeline, so seek the extra element and let the
+  // video follow at trim-in offset.
+  function jumpTo(t: number) {
+    const s = useStore.getState();
+    if (s.subtitleTrack === "extra") {
+      const extra = getAudioMix()?.extraEl;
+      if (extra) {
+        try { extra.currentTime = t; } catch { /* */ }
+      }
+      s.seekTo(t + s.trimRange.in_sec);
+      return;
+    }
+    seekTo(t);
+  }
 
   const activeIdx = segments.findIndex(
     (seg) => currentTime >= seg.start && currentTime <= seg.end,
@@ -96,7 +114,24 @@ export function SegmentList() {
                 className={`segment${i === activeIdx ? " active" : ""}`}
                 data-testid={`segment-${i}`}
                 data-active={i === activeIdx ? "1" : "0"}
+                title="Click to jump to this segment"
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("input,button")) return;
+                  jumpTo(seg.start);
+                }}
               >
+                <button
+                  type="button"
+                  className="segment-jump"
+                  data-testid={`segment-${i}-jump`}
+                  aria-label={`jump to segment ${i}`}
+                  title="Jump to this segment"
+                  onClick={() => jumpTo(seg.start)}
+                >
+                  <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" aria-hidden>
+                    <path d="M8 5 L18 12 L8 19 Z" />
+                  </svg>
+                </button>
                 <div className="segment-time">
                   <input
                     type="number"
@@ -104,6 +139,9 @@ export function SegmentList() {
                     value={seg.start}
                     data-testid={`segment-${i}-start`}
                     aria-label={`start ${fmtTimestamp(seg.start)}`}
+                    onMouseDown={(e) => {
+                      if (document.activeElement !== e.currentTarget) jumpTo(seg.start);
+                    }}
                     onChange={(e) =>
                       updateSegment(i, { start: Number(e.target.value) })
                     }
@@ -114,6 +152,9 @@ export function SegmentList() {
                     value={seg.end}
                     data-testid={`segment-${i}-end`}
                     aria-label={`end ${fmtTimestamp(seg.end)}`}
+                    onMouseDown={(e) => {
+                      if (document.activeElement !== e.currentTarget) jumpTo(seg.end);
+                    }}
                     onChange={(e) =>
                       updateSegment(i, { end: Number(e.target.value) })
                     }
@@ -124,6 +165,9 @@ export function SegmentList() {
                   className="segment-text"
                   value={seg.text}
                   data-testid={`segment-${i}-text`}
+                  onMouseDown={(e) => {
+                    if (document.activeElement !== e.currentTarget) jumpTo(seg.start);
+                  }}
                   onChange={(e) => updateSegment(i, { text: e.target.value })}
                 />
                 <button

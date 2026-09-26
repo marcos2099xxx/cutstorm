@@ -1,5 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getAudioMix, resumeAudioContext } from "../audioMix";
+import {
+  computeKeepsForRange,
+  cutTimeToOriginal,
+  keepsDuration,
+  mapToCutTime,
+  snapToKeep,
+} from "../silence";
 import { useStore } from "../store";
 
 /**
@@ -19,20 +26,50 @@ export function PreviewToolbar() {
   const trimRange = useStore((s) => s.trimRange);
   const extraAudioId = useStore((s) => s.audio.extraAudioId);
   const extraAudioDuration = useStore((s) => s.audio.extraAudioDuration);
+  const previewCut = useStore((s) => s.previewCut);
+  const setPreviewCut = useStore((s) => s.setPreviewCut);
+  const seekTo = useStore((s) => s.seekTo);
+  const trim = useStore((s) => s.trim);
+  const segmentsSource = useStore((s) => s.segmentsSource);
   const [playing, setPlaying] = useState(false);
 
   const trimIn = Math.max(0, trimRange.in_sec);
   const trimOut = trimRange.out_sec > 0 ? Math.min(trimRange.out_sec, duration || 0) : (duration || 0);
   const loopClipDuration = Math.max(0, trimOut - trimIn);
   const loopActive = !!trimRange.loop && extraAudioId !== null && extraAudioDuration > 0 && loopClipDuration > 0;
+
+  const cutKeeps = useMemo(() => {
+    if (!trim.enabled || !duration) return [];
+    const out = trimRange.out_sec > 0 ? trimRange.out_sec : duration;
+    return computeKeepsForRange(
+      segmentsSource, trimRange.in_sec, out, trim.threshold_sec, trim.padding_sec,
+    );
+  }, [
+    trim.enabled, trim.threshold_sec, trim.padding_sec,
+    segmentsSource, trimRange.in_sec, trimRange.out_sec, duration,
+  ]);
+  // Cut mode only makes sense when there are real cuts and no loop clock.
+  const hasCuts = !loopActive && cutKeeps.length > 0
+    && keepsDuration(cutKeeps) < loopClipDuration - 0.05;
+  const cutActive = previewCut && hasCuts;
+  const cutDuration = keepsDuration(cutKeeps);
+
+  useEffect(() => {
+    if (!hasCuts && previewCut) setPreviewCut(false);
+  }, [hasCuts, previewCut, setPreviewCut]);
   // In loop mode the master timeline is the extra audio (0 .. extraDur);
-  // currentTime already mirrors extra.currentTime via the rAF loop.
+  // currentTime already mirrors extra.currentTime via the rAF loop. In cut
+  // mode the scrub/clock track the CUT timeline (kept duration).
   const effectiveDuration = loopActive
     ? Math.max(0.01, extraAudioDuration)
-    : Math.max(0.01, trimOut - trimIn);
+    : cutActive
+      ? Math.max(0.01, cutDuration)
+      : Math.max(0.01, trimOut - trimIn);
   const progressVal = loopActive
     ? Math.max(0, Math.min(effectiveDuration, currentTime))
-    : Math.max(0, Math.min(effectiveDuration, currentTime - trimIn));
+    : cutActive
+      ? Math.max(0, Math.min(effectiveDuration, mapToCutTime(currentTime, cutKeeps)))
+      : Math.max(0, Math.min(effectiveDuration, currentTime - trimIn));
 
   useEffect(() => {
     const v = videoEl;
@@ -69,6 +106,10 @@ export function PreviewToolbar() {
       v.currentTime = trimIn;
       return;
     }
+    if (cutActive && cutKeeps.length) {
+      v.currentTime = cutKeeps[0][0];
+      return;
+    }
     v.currentTime = trimIn;
   }
 
@@ -87,7 +128,16 @@ export function PreviewToolbar() {
       }
       return;
     }
-    v.currentTime = Math.max(trimIn, Math.min(trimOut, trimIn + rel));
+    if (cutActive && cutKeeps.length) {
+      // Scrub value is cut-timeline time → map back into the original clip.
+      const tau = Math.max(0, Math.min(cutDuration, rel));
+      v.currentTime = cutTimeToOriginal(tau, cutKeeps);
+      return;
+    }
+    let target = Math.max(trimIn, Math.min(trimOut, trimIn + rel));
+    // Cut mode: never land inside a silenced gap.
+    if (previewCut && hasCuts) target = snapToKeep(target, cutKeeps);
+    v.currentTime = target;
   }
 
   if (!videoEl) return null;
@@ -124,6 +174,38 @@ export function PreviewToolbar() {
           <rect x="6" y="6" width="12" height="12" rx="1" />
         </svg>
       </button>
+      {hasCuts && (
+        <div
+          className="player-cut-toggle"
+          data-testid="preview-cut-toggle"
+          role="group"
+          aria-label="Preview version"
+        >
+          <button
+            type="button"
+            className={`player-cut-btn${previewCut ? "" : " active"}`}
+            data-testid="preview-mode-original"
+            aria-pressed={!previewCut}
+            onClick={() => setPreviewCut(false)}
+            title="Play the original, uncut clip"
+          >
+            Original
+          </button>
+          <button
+            type="button"
+            className={`player-cut-btn${previewCut ? " active" : ""}`}
+            data-testid="preview-mode-cut"
+            aria-pressed={previewCut}
+            onClick={() => {
+              setPreviewCut(true);
+              seekTo(useStore.getState().currentTime);
+            }}
+            title="Play the cut version — skips silenced gaps"
+          >
+            Cuts
+          </button>
+        </div>
+      )}
       <input
         type="range"
         className="player-scrub"
@@ -136,9 +218,9 @@ export function PreviewToolbar() {
         aria-label="Seek"
       />
       <span className="player-time" data-testid="player-time">
-        {fmt(loopActive ? currentTime : currentTime)}{" "}
+        {fmt(cutActive ? mapToCutTime(currentTime, cutKeeps) : currentTime)}{" "}
         <span className="player-time-sep">/</span>{" "}
-        {fmt(loopActive ? extraAudioDuration : duration)}
+        {fmt(cutActive ? cutDuration : loopActive ? extraAudioDuration : duration)}
       </span>
     </div>
   );

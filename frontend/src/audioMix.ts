@@ -137,11 +137,19 @@ export async function resumeAudioContext(): Promise<void> {
  * silence through the WebAudio graph. Gating by `extra.duration` was a bug
  * on first play, when metadata hadn't loaded yet (duration=NaN).
  */
-export function syncExtraToVideo(video: HTMLMediaElement, trimIn: number = 0): void {
+export function syncExtraToVideo(
+  video: HTMLMediaElement,
+  trimIn: number = 0,
+  mapTarget?: (videoTime: number) => number,
+): void {
   const c = current;
   if (!c || !c.extraEl) return;
   const extra = c.extraEl;
-  const target = Math.max(0, video.currentTime - trimIn);
+  // Cut-preview mode passes a mapper: the extra track rides the CUT timeline
+  // (the export cuts only the source, the extra track runs continuously).
+  const target = mapTarget
+    ? Math.max(0, mapTarget(video.currentTime))
+    : Math.max(0, video.currentTime - trimIn);
   if (Number.isFinite(target) && Math.abs(extra.currentTime - target) > 0.15) {
     try { extra.currentTime = target; } catch { /* */ }
   }

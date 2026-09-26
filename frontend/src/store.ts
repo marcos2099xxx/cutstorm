@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { temporal } from "zundo";
+import { computeKeepsForRange, snapToKeep } from "./silence";
 
 export type Word = { start: number; end: number; text: string };
 
@@ -122,6 +123,8 @@ type State = {
   progressPercent: number;
   currentTime: number;
   videoEl: HTMLMediaElement | null;
+  /** Preview mode: play the clip with silence cuts applied (skips gaps). */
+  previewCut: boolean;
   trim: TrimConfig;
   trimRange: TrimRange;
   audio: AudioConfig;
@@ -187,6 +190,8 @@ type Actions = {
   setProgress: (phase: ProgressPhase, percent: number) => void;
   setCurrentTime: (t: number) => void;
   setVideoEl: (el: HTMLMediaElement | null) => void;
+  setPreviewCut: (v: boolean) => void;
+  seekTo: (t: number) => void;
   setTrim: (patch: Partial<TrimConfig>) => void;
   setTrimRange: (patch: Partial<TrimRange>) => void;
   setAudio: (patch: Partial<AudioConfig>) => void;
@@ -253,6 +258,7 @@ export const useStore = create<State & Actions>()(
       progressPercent: 0,
       currentTime: 0,
       videoEl: null,
+      previewCut: false,
       trim: { enabled: false, threshold_sec: 0.4, padding_sec: 0.08 },
       trimRange: { in_sec: 0, out_sec: 0, loop: false },
       audio: {
@@ -418,6 +424,29 @@ export const useStore = create<State & Actions>()(
       setProgress: (phase, percent) => set({ progressPhase: phase, progressPercent: percent }),
       setCurrentTime: (t) => set({ currentTime: t }),
       setVideoEl: (el) => set({ videoEl: el }),
+      setPreviewCut: (v) => set({ previewCut: v }),
+      seekTo: (t) => {
+        const s = useStore.getState();
+        const el = s.videoEl;
+        if (!el) return;
+        const dur = s.duration || el.duration || 0;
+        const outSec = s.trimRange.out_sec > 0 ? s.trimRange.out_sec : dur;
+        const inSec = Math.max(0, s.trimRange.in_sec);
+        let target = Math.max(inSec, Math.min(outSec, t));
+        if (s.previewCut && s.trim.enabled) {
+          const keeps = computeKeepsForRange(
+            s.segmentsSource, inSec, outSec,
+            s.trim.threshold_sec, s.trim.padding_sec,
+          );
+          if (keeps.length) target = snapToKeep(target, keeps);
+        }
+        try {
+          el.currentTime = target;
+        } catch {
+          return;
+        }
+        set({ currentTime: target });
+      },
       setTrim: (patch) => set((s) => ({ trim: { ...s.trim, ...patch } })),
       setTrimRange: (patch) => set((s) => {
         const dur = s.duration || 0;

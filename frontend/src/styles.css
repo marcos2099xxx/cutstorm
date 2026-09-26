@@ -966,6 +966,36 @@ label {
   background: var(--surface-3);
 }
 
+/* Original vs cut preview toggle (only when silence cuts exist). */
+.player-cut-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.player-cut-btn {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.player-cut-btn:hover {
+  background: var(--surface-3);
+  color: var(--fg);
+}
+
+.player-cut-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
 .player-scrub {
   flex: 1;
   min-width: 0;
@@ -1195,16 +1225,37 @@ label {
 
 .segment {
   display: grid;
-  grid-template-columns: 68px 1fr auto;
+  grid-template-columns: 22px 68px 1fr auto;
   gap: 8px;
   align-items: center;
   padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid transparent;
   background: var(--surface);
+  cursor: pointer;
   transition:
     border-color 120ms ease,
     background 120ms ease;
+}
+
+.segment-jump {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.segment-jump:hover {
+  background: var(--surface-3);
+  color: var(--fg);
 }
 
 .segment:hover {
@@ -1771,7 +1822,6 @@ label {
 }
 
 .trim-handle::after {
-  content: "";
   position: absolute;
   top: 50%;
   left: 50%;
@@ -1799,6 +1849,27 @@ label {
   z-index: 3;
   box-shadow: 0 0 4px rgba(250, 204, 21, 0.6);
 }
+
+/* Silence regions the export will cut (only shown while "Trim silences" is on). */
+.trim-cut,
+.wave-cut {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(255, 96, 96, 0.34) 0 5px,
+    rgba(255, 96, 96, 0.12) 5px 10px
+  );
+  border-left: 1px solid rgba(255, 96, 96, 0.55);
+  border-right: 1px solid rgba(255, 96, 96, 0.55);
+}
+
+/* Above the dim/keep-frame layers, below handles (4) and playhead (3). */
+.trim-cut { z-index: 2; }
+
+.timeline-cuts { color: #ff8a8a; }
 
 .timeline-meta {
   display: flex;

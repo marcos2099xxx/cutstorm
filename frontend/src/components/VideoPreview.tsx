@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   attachAudioMix,
   getAudioMix,
@@ -10,6 +10,13 @@ import {
 } from "../audioMix";
 import { resolveCanvas } from "../canvas";
 import { getExtraAudioPlaybackUrl } from "../extraBlobs";
+import {
+  computeKeepsForRange,
+  isInsideKeeps,
+  keepsDuration,
+  mapToCutTime,
+  nextKeepStart,
+} from "../silence";
 import { useStore } from "../store";
 import { CropEditor } from "./CropEditor";
 import { PreviewToolbar } from "./PreviewToolbar";
@@ -32,6 +39,9 @@ export function VideoPreview() {
   const extraAudioDuration = useStore((s) => s.audio.extraAudioDuration);
   const extraVolume = useStore((s) => s.audio.extraVolume);
   const duration = useStore((s) => s.duration);
+  const previewCut = useStore((s) => s.previewCut);
+  const trim = useStore((s) => s.trim);
+  const segmentsSource = useStore((s) => s.segmentsSource);
   const videoRef = useRef<HTMLVideoElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -39,6 +49,19 @@ export function VideoPreview() {
   const trimOut = trimRange.out_sec > 0 ? trimRange.out_sec : duration;
   const loopClipDuration = Math.max(0, trimOut - trimRange.in_sec);
   const loopActive = !!trimRange.loop && extraAudioId !== null && extraAudioDuration > 0 && loopClipDuration > 0;
+
+  const cutKeeps = useMemo(() => {
+    if (!trim.enabled || !duration) return [];
+    return computeKeepsForRange(
+      segmentsSource, trimRange.in_sec, trimOut,
+      trim.threshold_sec, trim.padding_sec,
+    );
+  }, [
+    trim.enabled, trim.threshold_sec, trim.padding_sec,
+    segmentsSource, trimRange.in_sec, trimOut, duration,
+  ]);
+  const cutActive = previewCut && !loopActive && cutKeeps.length > 0
+    && keepsDuration(cutKeeps) < loopClipDuration - 0.05;
 
   const resolved = resolveCanvas(canvas, videoW, videoH, false);
   // In custom mode the preview-frame renders the FULL source (so the user can
@@ -89,26 +112,43 @@ export function VideoPreview() {
     const v = videoRef.current;
     if (!v) return;
     if (loopActive) return; // loop branch in the next effect owns the clock.
+    const cutMapper = cutActive
+      ? (t: number) => mapToCutTime(t, cutKeeps)
+      : undefined;
     const onTime = () => {
       if (trimRange.in_sec > 0 && v.currentTime < trimRange.in_sec - 0.05) {
         v.currentTime = trimRange.in_sec;
+      }
+      // Cut preview: jump over silenced gaps, stop after the last keep.
+      if (cutActive && cutKeeps.length) {
+        const t = v.currentTime;
+        if (!isInsideKeeps(t, cutKeeps)) {
+          const next = nextKeepStart(t, cutKeeps);
+          if (next !== null) {
+            v.currentTime = next;
+          } else {
+            const outLimit = trimRange.out_sec > 0 ? trimRange.out_sec : (v.duration || duration || 0);
+            v.pause();
+            v.currentTime = Math.min(outLimit, cutKeeps[cutKeeps.length - 1][1]);
+          }
+        }
       }
       if (trimRange.out_sec > 0 && v.currentTime > trimRange.out_sec) {
         v.pause();
         v.currentTime = trimRange.out_sec;
       }
       setCurrentTime(v.currentTime);
-      syncExtraToVideo(v, trimRange.in_sec);
+      syncExtraToVideo(v, trimRange.in_sec, cutMapper);
     };
     const onPlay = () => {
       if (trimRange.in_sec > 0 && v.currentTime < trimRange.in_sec) {
         v.currentTime = trimRange.in_sec;
       }
       resumeAudioContext();
-      syncExtraToVideo(v, trimRange.in_sec);
+      syncExtraToVideo(v, trimRange.in_sec, cutMapper);
     };
-    const onPause = () => syncExtraToVideo(v, trimRange.in_sec);
-    const onExtraReady = () => syncExtraToVideo(v, trimRange.in_sec);
+    const onPause = () => syncExtraToVideo(v, trimRange.in_sec, cutMapper);
+    const onExtraReady = () => syncExtraToVideo(v, trimRange.in_sec, cutMapper);
     v.addEventListener("timeupdate", onTime);
     v.addEventListener("seeked", onTime);
     v.addEventListener("play", onPlay);
@@ -122,7 +162,10 @@ export function VideoPreview() {
       v.removeEventListener("pause", onPause);
       window.removeEventListener("cutstorm:extra-ready", onExtraReady);
     };
-  }, [setCurrentTime, videoUrl, trimRange.in_sec, trimRange.out_sec, loopActive]);
+  }, [
+    setCurrentTime, videoUrl, trimRange.in_sec, trimRange.out_sec, loopActive,
+    cutActive, cutKeeps, duration,
+  ]);
 
   // Loop-mode preview: extra audio drives the master clock, the video is
   // re-seeked every animation frame to `trimIn + (master % loopClipDur)` so
