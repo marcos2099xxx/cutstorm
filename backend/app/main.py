@@ -32,7 +32,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import ass_builder, burn, canvas as canvas_mod, peaks as peaks_mod, renderer, silence, simple_export, thumbnails as thumbs_mod, ws
+from . import ass_builder, burn, canvas as canvas_mod, peaks as peaks_mod, renderer, silence, simple_export, subs_import, thumbnails as thumbs_mod, ws
 from .models import (
     ExportRequest,
     ExportResponse,
@@ -44,7 +44,18 @@ from .models import (
     UpdateSegmentsRequest,
     Word,
 )
-from .transcribe import _get_fw_model, probe, transcribe, transcribe_stream
+from .transcribe import (
+    _align_one,
+    _device,
+    _get_align_model,
+    _get_fw_model,
+    _synthesize_words,
+    _track_activity,
+    _unload_idle_models,
+    probe,
+    transcribe,
+    transcribe_stream,
+)
 
 UPLOADS_DIR = Path(os.environ.get("UPLOADS_DIR", "/data/uploads"))
 OUTPUTS_DIR = Path(os.environ.get("OUTPUTS_DIR", "/data/outputs"))
@@ -230,18 +241,43 @@ async def _warmup_whisper() -> None:
     log.info("warmup.whisper done elapsed=%.1fs", time.perf_counter() - t0)
 
 
+async def _model_unload_loop() -> None:
+    """Evict cached whisper/alignment models after `WHISPER_UNLOAD_AFTER_SEC`
+    seconds without transcription activity (0 disables). Frees ~3 GB while
+    the user is only editing/exporting."""
+    idle_sec = float(os.environ.get("WHISPER_UNLOAD_AFTER_SEC", "900"))
+    if idle_sec <= 0:
+        log.info("unload_loop.disabled WHISPER_UNLOAD_AFTER_SEC=0")
+        return
+    while True:
+        try:
+            await asyncio.sleep(60)
+            names = await asyncio.to_thread(_unload_idle_models, idle_sec)
+            if names:
+                log.info(
+                    "unload_loop.evicted idle=%.0fs models=%s",
+                    idle_sec, ",".join(names),
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # pragma: no cover
+            log.warning("unload_loop failed: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ws.set_loop(asyncio.get_running_loop())
     _sweep_orphans()
     stale_task = asyncio.create_task(_sweep_loop())
     orphan_task = asyncio.create_task(_orphan_loop())
+    unload_task = asyncio.create_task(_model_unload_loop())
     warmup_task = asyncio.create_task(_warmup_whisper())
     try:
         yield
     finally:
         stale_task.cancel()
         orphan_task.cancel()
+        unload_task.cancel()
         warmup_task.cancel()
 
 
@@ -1028,6 +1064,73 @@ def update_transcript(video_id: str, req: UpdateSegmentsRequest) -> dict:
     return {"ok": True}
 
 
+_IMPORT_MAX_BYTES = 5 * 1024 * 1024
+
+
+@app.post("/api/transcripts/{video_id}/import", response_model=TranscribeResponse)
+async def import_transcript(
+    video_id: str,
+    file: UploadFile = File(...),
+    align: bool = Form(False),
+    job_id: str | None = Query(default=None),
+    x_job_id: str | None = Header(default=None),
+) -> TranscribeResponse:
+    """Replace the source transcript with an imported SRT/VTT file.
+
+    `align=true` runs whisperX forced alignment against the source audio so
+    word/karaoke caption modes get real timings; otherwise word timings are
+    synthesized evenly inside each cue.
+    """
+    _validate_video_id(video_id)
+    meta_path = _meta_path(video_id)
+    if not meta_path.exists():
+        raise HTTPException(status_code=404, detail="transcript not found")
+
+    raw = await file.read()
+    if len(raw) > _IMPORT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="subtitle file too large (max 5 MB)")
+    segments = subs_import.parse_subtitles(raw.decode("utf-8", errors="replace"))
+    if not segments:
+        raise HTTPException(status_code=400, detail="no subtitle cues found in the file")
+
+    data = json.loads(meta_path.read_text())
+    jid = job_id or x_job_id
+
+    media = _find_media_file(video_id)
+    if align and media is not None:
+        segments = await asyncio.to_thread(
+            _align_imported_segments, media, segments, data.get("language"), jid,
+        )
+    else:
+        if align:
+            log.warning("import.align_skipped video_id=%s reason=media_missing", video_id)
+        segments = [
+            s.model_copy(update={"words": _synthesize_words(s.text, s.start, s.end)})
+            for s in segments
+        ]
+
+    # An import supersedes any in-flight whisper run for this video — stop it
+    # so it can't overwrite the imported segments later.
+    old = _transcribe_tasks.get(video_id)
+    if old is not None:
+        old_task, old_flag = old
+        if not old_task.done():
+            old_flag["v"] = True
+            old_task.cancel()
+
+    data.pop("_cache_key", None)
+    data["segments"] = [s.model_dump() for s in segments]
+    data["status"] = "done"
+    data["percent"] = 100
+    data["model"] = "imported"
+    meta_path.write_text(json.dumps(data))
+    log.info(
+        "import.done video_id=%s segments=%d align=%s words=%d",
+        video_id, len(segments), align, sum(len(s.words or []) for s in segments),
+    )
+    return TranscribeResponse(**data)
+
+
 def _referenced_extra_ids() -> set[str]:
     """Scan all project meta files for extra_audio_id references. Used by
     delete + orphan-sweep to avoid removing an extra audio file that another
@@ -1240,6 +1343,43 @@ def _load_source_segments(video_id: str) -> list[Segment]:
         return [Segment.model_validate(item) for item in raw]
     except Exception:
         return []
+
+
+@_track_activity
+def _align_imported_segments(
+    media: Path,
+    segments: list[Segment],
+    language: str | None,
+    jid: str | None,
+) -> list[Segment]:
+    """Forced-align imported cues against the source audio (whisperX).
+
+    Setup failure falls back to even per-word timings; per-cue failures
+    already fall back inside `_align_one`.
+    """
+    try:
+        import whisperx
+
+        audio = whisperx.load_audio(str(media))
+        align_model, align_meta = _get_align_model(language or "en")
+    except Exception as exc:
+        log.warning("import.align_setup_failed err=%s — synthesized word timings", exc)
+        return [
+            s.model_copy(update={"words": _synthesize_words(s.text, s.start, s.end)})
+            for s in segments
+        ]
+
+    out: list[Segment] = []
+    total = len(segments)
+    for i, seg in enumerate(segments):
+        words = _align_one(
+            {"start": seg.start, "end": seg.end, "text": seg.text},
+            audio, align_model, align_meta, _device(),
+        )
+        out.append(seg.model_copy(update={"words": words}))
+        if jid and (i % 5 == 0 or i == total - 1):
+            ws.push(jid, {"phase": "align", "percent": int((i + 1) / total * 100)})
+    return out
 
 
 def _clip_segments_to_trim(
@@ -1705,6 +1845,7 @@ async def api_export(
     ws.push(jid, {"phase": "encode", "percent": 0, "video_id": req.video_id})
 
     select_expr = silence.build_select_expr(keeps) if keeps is not None else None
+    x264_preset, x264_crf = renderer.x264_settings(req.encode_speed)
 
     has_overlay = any(
         (s.text or "").strip() for s in segments_for_render
@@ -1769,6 +1910,8 @@ async def api_export(
                 watermark_path=watermark_path,
                 source_has_audio=info.has_audio,
                 loop_total_duration=loop_total_duration,
+                x264_preset=x264_preset,
+                x264_crf=x264_crf,
             )
             return
         log.info(
@@ -1798,6 +1941,7 @@ async def api_export(
             watermark=wm_active,
             source_has_audio=info.has_audio,
             loop_total_duration=loop_total_duration,
+            encode_speed=req.encode_speed,
         )
 
     try:

@@ -205,6 +205,9 @@ class ExportRequest(BaseModel):
     audio: AudioMix = Field(default_factory=AudioMix)
     format: ExportFormat = "mp4"
     gif_quality: GifQuality = "medium"
+    # libx264 settings: "quality" = slow/CRF 16 (default, current behaviour),
+    # "fast" = medium/CRF 18 — noticeably quicker CPU drafts.
+    encode_speed: Literal["quality", "fast"] = "quality"
     watermark: bool = True
     # Which transcript drives burned-in subtitles. "source" = whisper on the
     # original video; "extra" = whisper on the uploaded extra audio track.

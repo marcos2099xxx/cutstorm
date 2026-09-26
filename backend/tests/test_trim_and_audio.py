@@ -339,6 +339,36 @@ def test_find_extra_audio_validates_id() -> None:
     assert _find_extra_audio("f" * 16) is None
 
 
+# ---------------- encode speed ----------------
+
+def test_encode_speed_default_is_quality(client, spies):
+    _cleanup(VIDEO_ID)
+    _seed(VIDEO_ID, duration=20.0)
+    try:
+        body = _body(VIDEO_ID, trim={"in_sec": 1.0, "out_sec": 5.0})
+        r = client.post("/api/export", json=body)
+        assert r.status_code == 200, r.text
+        assert "filter_only" in spies
+        assert spies["filter_only"]["x264_preset"] == "slow"
+        assert spies["filter_only"]["x264_crf"] == 16
+    finally:
+        _cleanup(VIDEO_ID)
+
+
+def test_encode_speed_fast_forwarded(client, spies):
+    _cleanup(VIDEO_ID)
+    _seed(VIDEO_ID, duration=20.0)
+    try:
+        body = _body(VIDEO_ID, encode_speed="fast", trim={"in_sec": 1.0, "out_sec": 5.0})
+        r = client.post("/api/export", json=body)
+        assert r.status_code == 200, r.text
+        assert "filter_only" in spies
+        assert spies["filter_only"]["x264_preset"] == "medium"
+        assert spies["filter_only"]["x264_crf"] == 18
+    finally:
+        _cleanup(VIDEO_ID)
+
+
 # ---------------- /api/extra-audio endpoint ----------------
 
 def test_extra_audio_upload_rejects_video(client):

@@ -58,6 +58,8 @@ def run_filter_only(
     source_has_audio: bool = True,
     loop_total_duration: float | None = None,
     fps: int = 30,
+    x264_preset: str = "slow",
+    x264_crf: int = 16,
 ) -> None:
     """Case B: canvas transform and/or trim, but no subtitle overlay.
 
@@ -188,8 +190,8 @@ def run_filter_only(
         "-map", "[v]", *audio_map,
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
-        "-preset", "slow",
-        "-crf", "16",
+        "-preset", x264_preset,
+        "-crf", str(x264_crf),
     ]
     # -shortest stops encoding when the shortest input ends; otherwise the
     # looped watermark PNG (or aloop'd source) would extend the video

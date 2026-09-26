@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
@@ -55,6 +56,7 @@ def probe(video: Path) -> ProbeInfo:
 
 
 import threading as _threading
+import time as _time
 
 _whisper_models: dict[str, object] = {}
 _align_models: dict[str, tuple[object, dict]] = {}
@@ -63,6 +65,56 @@ _align_models: dict[str, tuple[object, dict]] = {}
 # CPU / I/O — observed taking 2× longer on parallel uploads.
 _whisper_model_lock = _threading.Lock()
 _align_model_lock = _threading.Lock()
+
+# Idle-unload bookkeeping: `_last_activity` is touched whenever a model is
+# loaded or a transcription finishes; `_active_transcribes` keeps the idle
+# sweeper from evicting a model that a running job still needs.
+_last_activity: float = _time.monotonic()
+_active_transcribes: int = 0
+
+
+def _touch_activity() -> None:
+    global _last_activity
+    _last_activity = _time.monotonic()
+
+
+def _unload_idle_models(idle_sec: float, now: float | None = None) -> list[str]:
+    """Drop cached ASR/alignment models after `idle_sec` without activity.
+
+    Returns the names of the evicted models (empty when nothing was evicted).
+    Never evicts while a transcription is in flight — callers re-touch the
+    activity timestamp when a run ends.
+    """
+    if idle_sec <= 0 or _active_transcribes > 0:
+        return []
+    now = _time.monotonic() if now is None else now
+    if now - _last_activity < idle_sec:
+        return []
+    unloaded: list[str] = []
+    with _whisper_model_lock:
+        for name in list(_whisper_models):
+            unloaded.append(f"asr:{name}")
+            del _whisper_models[name]
+    with _align_model_lock:
+        for lang in list(_align_models):
+            unloaded.append(f"align:{lang}")
+            del _align_models[lang]
+    return unloaded
+
+
+def _track_activity(fn):
+    """Mark a transcription as in-flight so the idle sweeper can't evict the
+    models it depends on, and re-touch activity when it finishes."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        global _active_transcribes
+        _active_transcribes += 1
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _active_transcribes -= 1
+            _touch_activity()
+    return wrapper
 
 
 def _device() -> str:
@@ -89,12 +141,14 @@ def _get_fw_model(name: Optional[str]):
     resolved = name or env_name
     if resolved in _whisper_models:
         log.info("whisper.model_cached name=%s", resolved)
+        _touch_activity()
         return _whisper_models[resolved]
     with _whisper_model_lock:
         # Double-check: another thread may have finished loading while we
         # were waiting on the lock.
         if resolved in _whisper_models:
             log.info("whisper.model_cached name=%s (after wait)", resolved)
+            _touch_activity()
             return _whisper_models[resolved]
         log.info("whisper.model_loading name=%s device=%s compute=%s", resolved, _device(), _compute())
         t0 = _t.perf_counter()
@@ -106,6 +160,7 @@ def _get_fw_model(name: Optional[str]):
         )
         log.info("whisper.model_loaded name=%s elapsed=%.1fs", resolved, _t.perf_counter() - t0)
         _whisper_models[resolved] = m
+        _touch_activity()
         return m
 
 
@@ -115,10 +170,12 @@ def _get_align_model(language: str):
 
     if language in _align_models:
         log.info("align.model_cached lang=%s", language)
+        _touch_activity()
         return _align_models[language]
     with _align_model_lock:
         if language in _align_models:
             log.info("align.model_cached lang=%s (after wait)", language)
+            _touch_activity()
             return _align_models[language]
         log.info("align.model_loading lang=%s device=%s", language, _device())
         t0 = _t.perf_counter()
@@ -129,6 +186,7 @@ def _get_align_model(language: str):
         )
         log.info("align.model_loaded lang=%s elapsed=%.1fs", language, _t.perf_counter() - t0)
         _align_models[language] = (model, meta)
+        _touch_activity()
     return model, meta
 
 
@@ -301,6 +359,7 @@ def _align_one(
     return words
 
 
+@_track_activity
 def transcribe_stream(
     video: Path,
     language: Optional[str] = None,
@@ -394,6 +453,7 @@ def transcribe_stream(
     return (out, detected_lang)
 
 
+@_track_activity
 def transcribe(
     video: Path,
     language: Optional[str] = None,

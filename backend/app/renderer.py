@@ -29,6 +29,17 @@ ProgressCb = Callable[[int], None]
 RENDER_FPS = 30
 RENDER_URL = "http://127.0.0.1:8000/?render=1"
 
+# Export speed presets: libx264 (preset, CRF). "quality" keeps the historical
+# defaults; "fast" trades some quality/size for much quicker CPU drafts.
+_X264_SETTINGS: dict[str, tuple[str, int]] = {
+    "quality": ("slow", 16),
+    "fast": ("medium", 18),
+}
+
+
+def x264_settings(encode_speed: str) -> tuple[str, int]:
+    return _X264_SETTINGS.get(encode_speed, _X264_SETTINGS["quality"])
+
 
 def _build_render_state(
     segments: list[Segment],
@@ -163,6 +174,8 @@ def _ffmpeg_cmd_video(
     extra_volume: float = 1.0,
     source_has_audio: bool = True,
     loop_total_duration: float | None = None,
+    x264_preset: str = "slow",
+    x264_crf: int = 16,
 ) -> list[str]:
     """Build ffmpeg for: source video → scale/crop + overlay PNG stream + audio.
 
@@ -285,8 +298,8 @@ def _ffmpeg_cmd_video(
         *audio_map,
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
-        "-preset", "slow",
-        "-crf", "16",
+        "-preset", x264_preset,
+        "-crf", str(x264_crf),
         *acopy,
         "-shortest",
         str(out),
@@ -308,6 +321,8 @@ def _ffmpeg_cmd_audio_only(
     source_volume: float = 1.0,
     extra_audio: Path | None = None,
     extra_volume: float = 1.0,
+    x264_preset: str = "slow",
+    x264_crf: int = 16,
 ) -> list[str]:
     """Build ffmpeg for: synthetic color bg + audio + overlay PNG stream."""
     ff_color = hex_to_ffmpeg_color(bg_color)
@@ -352,8 +367,8 @@ def _ffmpeg_cmd_audio_only(
         *audio_map,
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
-        "-preset", "slow",
-        "-crf", "16",
+        "-preset", x264_preset,
+        "-crf", str(x264_crf),
         "-c:a", "aac",
         "-b:a", "192k",
         "-shortest",
@@ -386,12 +401,14 @@ def render_export(
     watermark: bool = False,
     source_has_audio: bool = True,
     loop_total_duration: float | None = None,
+    encode_speed: str = "quality",
 ) -> None:
     """Synchronous entry. Runs Playwright frame capture + ffmpeg pipe.
 
     Intended to be called via asyncio.to_thread from async FastAPI handler.
     """
     out.parent.mkdir(parents=True, exist_ok=True)
+    x264_preset, x264_crf = x264_settings(encode_speed)
     state = _build_render_state(
         segments, style, position, size, canvas,
         target_w, target_h, duration, is_audio_only,
@@ -407,6 +424,7 @@ def render_export(
             trim_in=trim_in, trim_duration=trim_duration,
             source_volume=source_volume,
             extra_audio=extra_audio, extra_volume=extra_volume,
+            x264_preset=x264_preset, x264_crf=x264_crf,
         )
     else:
         cmd = _ffmpeg_cmd_video(
@@ -419,6 +437,7 @@ def render_export(
             extra_audio=extra_audio, extra_volume=extra_volume,
             source_has_audio=source_has_audio,
             loop_total_duration=loop_total_duration,
+            x264_preset=x264_preset, x264_crf=x264_crf,
         )
     log.info("renderer.ffmpeg cmd=%s", shlex.join(cmd))
 
