@@ -1226,6 +1226,22 @@ def api_video(video_id: str) -> FileResponse:
     return FileResponse(path, media_type=mime)
 
 
+def _load_source_segments(video_id: str) -> list[Segment]:
+    """Persisted source transcript from meta.json (used when the active
+    subtitle track is "extra" but silence cuts still target the source)."""
+    try:
+        data = json.loads(_meta_path(video_id).read_text())
+    except Exception:
+        return []
+    raw = data.get("segments")
+    if not isinstance(raw, list):
+        return []
+    try:
+        return [Segment.model_validate(item) for item in raw]
+    except Exception:
+        return []
+
+
 def _clip_segments_to_trim(
     segments: list[Segment], trim_in: float, trim_out: float,
 ) -> list[Segment]:
@@ -1589,13 +1605,23 @@ async def api_export(
     keeps: list[tuple[float, float]] | None = None
     new_duration = clipped_duration
     if req.trim_silences:
+        # Silence cuts always derive from the source transcript. When the
+        # active subtitle track is "extra", req.segments carries extra-audio
+        # timestamps — those must not drive (or be retimed by) source cuts.
+        if req.subtitle_track == "extra":
+            cut_source = _load_source_segments(req.video_id)
+            if edge_trim_active:
+                cut_source = _clip_segments_to_trim(cut_source, trim_in, trim_out)
+        else:
+            cut_source = segments_for_render
         keeps = silence.cuts_from_words(
-            segments_for_render,
+            cut_source,
             threshold_sec=req.silence_threshold_sec,
             padding_sec=req.silence_padding_sec,
             total_duration=clipped_duration,
         )
-        segments_for_render = silence.retime_segments(segments_for_render, keeps)
+        if req.subtitle_track != "extra":
+            segments_for_render = silence.retime_segments(segments_for_render, keeps)
         new_duration = silence.kept_duration(keeps)
         log.info(
             "export.trim keeps=%d new_duration=%.2fs (from %.2fs)",

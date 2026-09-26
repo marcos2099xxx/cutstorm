@@ -104,7 +104,23 @@ def test_kept_duration() -> None:
 
 def test_select_expr_format() -> None:
     expr = build_select_expr([(0.0, 1.0), (5.0, 6.5)])
-    assert expr == "between(t,0.000,1.000)+between(t,5.000,6.500)"
+    assert expr == "(between(t,0.000,1.000)+between(t,5.000,6.500))"
+
+
+def test_select_expr_large_stays_shallow() -> None:
+    # ffmpeg's expression parser recurses per nested operator and bails out
+    # with ENOMEM past 100 levels — a flat `+` chain of keeps breaks exports
+    # with >100 silence cuts. Balanced grouping keeps depth logarithmic.
+    expr = build_select_expr([(i * 3.0, i * 3.0 + 2.0) for i in range(300)])
+    depth = max_depth = 0
+    for ch in expr:
+        if ch == "(":
+            depth += 1
+            max_depth = max(max_depth, depth)
+        elif ch == ")":
+            depth -= 1
+    assert depth == 0
+    assert max_depth <= 10
 
 
 def test_select_expr_empty() -> None:

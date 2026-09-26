@@ -281,6 +281,57 @@ def test_trim_out_zero_interpreted_as_end(client, spies):
         _cleanup(VIDEO_ID)
 
 
+def test_silence_cuts_use_source_transcript_on_extra_track(client, spies):
+    """Regression: with subtitle_track="extra", silence cuts must come from the
+    persisted source transcript, and extra captions must not be retimed (they
+    ride the extra-audio timeline, which the export does not cut)."""
+    _cleanup(VIDEO_ID)
+    _seed(VIDEO_ID, duration=20.0)
+    _meta_path(VIDEO_ID).write_text(json.dumps({
+        "video_id": VIDEO_ID,
+        "duration": 20.0,
+        "width": 1280,
+        "height": 720,
+        "language": "en",
+        "segments": [
+            {"start": 0.0, "end": 2.0, "text": "hi there", "words": [
+                {"start": 0.5, "end": 1.0, "text": "hi"},
+                {"start": 1.0, "end": 1.5, "text": "there"},
+            ]},
+            {"start": 12.0, "end": 14.0, "text": "bye", "words": [
+                {"start": 12.0, "end": 13.0, "text": "bye"},
+            ]},
+        ],
+        "is_audio_only": False,
+        "_cache_key": "__trim__",
+    }))
+    extra_segments = [{
+        "start": 0.0, "end": 5.0, "text": "extra words",
+        "words": [{"start": 0.0, "end": 5.0, "text": "extra words"}],
+    }]
+    try:
+        body = _body(
+            VIDEO_ID,
+            trim_silences=True,
+            subtitle_track="extra",
+            segments=extra_segments,
+        )
+        r = client.post("/api/export", json=body)
+        assert r.status_code == 200, r.text
+        assert "render" in spies, "extra-track captions must keep the overlay path"
+        kw = spies["render"]
+        # Extra captions untouched — no retime against the source cut map.
+        assert len(kw["segments"]) == 1
+        assert abs(kw["segments"][0].start - 0.0) < 1e-6
+        assert abs(kw["segments"][0].end - 5.0) < 1e-6
+        # Cuts come from the source transcript's 10.5s gap, not from the extra
+        # captions (which have no internal gap → would keep the full 20s).
+        assert "11.920" in kw["select_expr"]
+        assert abs(kw["duration"] - 2.32) < 0.01
+    finally:
+        _cleanup(VIDEO_ID)
+
+
 def test_find_extra_audio_validates_id() -> None:
     assert _find_extra_audio("not-hex") is None
     assert _find_extra_audio("a" * 15) is None

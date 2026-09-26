@@ -101,7 +101,19 @@ def kept_duration(keeps: list[KeepInterval]) -> float:
 
 
 def build_select_expr(keeps: list[KeepInterval]) -> str:
-    """ffmpeg select/aselect expression that keeps frames within any interval."""
+    """ffmpeg select/aselect expression that keeps frames within any interval.
+
+    Terms are combined as a balanced tree of `+` instead of a flat chain:
+    ffmpeg's expression parser recurses per nested operator and fails with
+    ENOMEM past its 100-level stack guard (libavutil/eval.c), so a flat chain
+    breaks exports of long videos with many silence cuts.
+    """
     if not keeps:
         return "0"
-    return "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in keeps)
+    terms = [f"between(t,{s:.3f},{e:.3f})" for s, e in keeps]
+    while len(terms) > 1:
+        merged = [f"({a}+{b})" for a, b in zip(terms[0::2], terms[1::2])]
+        if len(terms) % 2:
+            merged.append(terms[-1])
+        terms = merged
+    return terms[0]
