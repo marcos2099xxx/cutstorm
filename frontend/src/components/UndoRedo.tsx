@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { useStore } from "../store";
+import { useT } from "../useT";
 
 const isMac =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -14,6 +15,7 @@ export function UndoRedo() {
   const future = useSyncExternalStore(subscribe, getFuture, () => 0);
   const undo = () => useStore.temporal.getState().undo();
   const redo = () => useStore.temporal.getState().redo();
+  const t = useT();
 
   return (
     <div className="undo-redo">
@@ -21,8 +23,8 @@ export function UndoRedo() {
         className="icon"
         onClick={undo}
         disabled={past === 0}
-        title={`Undo (${MOD}Z)`}
-        aria-label="Undo"
+        title={`${t("Undo")} (${MOD}Z)`}
+        aria-label={t("Undo")}
         data-testid="undo-button"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -34,8 +36,8 @@ export function UndoRedo() {
         className="icon"
         onClick={redo}
         disabled={future === 0}
-        title={`Redo (${MOD}\u21e7Z)`}
-        aria-label="Redo"
+        title={`${t("Redo")} (${MOD}\u21e7Z)`}
+        aria-label={t("Redo")}
         data-testid="redo-button"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

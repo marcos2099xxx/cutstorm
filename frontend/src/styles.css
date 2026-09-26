@@ -996,6 +996,42 @@ label {
   color: #fff;
 }
 
+/* UI language switch (top bar + start screen) */
+.locale-switch {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.locale-btn {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.locale-btn:hover {
+  background: var(--surface-3);
+  color: var(--fg);
+}
+
+.locale-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.start-locale {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+
 .player-scrub {
   flex: 1;
   min-width: 0;

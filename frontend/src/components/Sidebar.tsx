@@ -10,6 +10,7 @@ import {
   videoUrl,
 } from "../api";
 import { useStore } from "../store";
+import { useT } from "../useT";
 
 function fmtBytes(n: number): string {
   if (!n || !Number.isFinite(n)) return "0 B";
@@ -31,12 +32,12 @@ function fmtDuration(d: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function fmtRelTime(ts: number): string {
+function fmtRelTime(ts: number, t: (key: string, vars?: Record<string, string | number>) => string): string {
   const diff = (Date.now() / 1000) - ts;
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} h ago`;
-  return `${Math.floor(diff / 86400)} d ago`;
+  if (diff < 60) return t("just now");
+  if (diff < 3600) return t("{n} min ago", { n: Math.floor(diff / 60) });
+  if (diff < 86400) return t("{n} h ago", { n: Math.floor(diff / 3600) });
+  return t("{n} d ago", { n: Math.floor(diff / 86400) });
 }
 
 export function Sidebar({ open, onClose }: Props) {
@@ -47,6 +48,7 @@ export function Sidebar({ open, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [sweeping, setSweeping] = useState(false);
+  const t = useT();
 
   async function refresh() {
     setBusy(true);
@@ -99,8 +101,9 @@ export function Sidebar({ open, onClose }: Props) {
   async function remove(item: TranscriptSummary, e: React.MouseEvent) {
     e.stopPropagation();
     const confirm = window.confirm(
-      `Delete transcript for "${item.original_filename || item.video_id}"?\n\n` +
-        `Next upload of the same video will re-transcribe from scratch.`,
+      t("Delete transcript for “{name}”?\n\nNext upload of the same video will re-transcribe from scratch.", {
+        name: item.original_filename || item.video_id,
+      }),
     );
     if (!confirm) return;
     try {
@@ -117,14 +120,15 @@ export function Sidebar({ open, onClose }: Props) {
       {open && <div className="sidebar-backdrop" onClick={onClose} />}
       <aside className={`sidebar${open ? " open" : ""}`} aria-hidden={!open}>
         <div className="sidebar-header">
-          <h2>Saved projects</h2>
-          <button className="icon" onClick={onClose} aria-label="close">×</button>
+          <h2>{t("Saved projects")}</h2>
+          <button className="icon" onClick={onClose} aria-label={t("close")}>×</button>
         </div>
         {storage && (
           <div className="sidebar-storage" data-testid="sidebar-storage">
             <div className="sidebar-storage-line">
-              Using {fmtBytes(storage.total_bytes)} across {storage.projects}{" "}
-              project{storage.projects === 1 ? "" : "s"}
+              {storage.projects === 1
+                ? t("Using {bytes} across {n} project", { bytes: fmtBytes(storage.total_bytes), n: storage.projects })
+                : t("Using {bytes} across {n} projects", { bytes: fmtBytes(storage.total_bytes), n: storage.projects })}
             </div>
             <button
               className="link"
@@ -132,16 +136,16 @@ export function Sidebar({ open, onClose }: Props) {
               disabled={sweeping}
               data-testid="clean-orphans"
             >
-              {sweeping ? "Cleaning…" : "Clean up orphans"}
+              {sweeping ? t("Cleaning…") : t("Clean up orphans")}
             </button>
           </div>
         )}
         <div className="sidebar-body">
           {busy && items.length === 0 && (
-            <div className="sidebar-empty">Loading…</div>
+            <div className="sidebar-empty">{t("Loading…")}</div>
           )}
           {!busy && items.length === 0 && (
-            <div className="sidebar-empty">No saved transcripts yet.</div>
+            <div className="sidebar-empty">{t("No saved transcripts yet.")}</div>
           )}
           {items.map((it) => (
             <button
@@ -162,13 +166,13 @@ export function Sidebar({ open, onClose }: Props) {
                 <span>·</span>
                 <span>{it.segments_count} seg</span>
                 <span>·</span>
-                <span>{fmtRelTime(it.updated_at)}</span>
+                <span>{fmtRelTime(it.updated_at, t)}</span>
               </div>
               <button
                 className="sidebar-item-del"
                 onClick={(e) => remove(it, e)}
-                aria-label={`delete ${it.original_filename || it.video_id}`}
-                title="Delete transcript + video"
+                aria-label={t("delete {name}", { name: it.original_filename || it.video_id })}
+                title={t("Delete transcript + video")}
               >
                 <svg
                   width="14"

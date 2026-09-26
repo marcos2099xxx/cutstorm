@@ -8,6 +8,7 @@ import {
   snapToKeep,
 } from "../silence";
 import { useStore } from "../store";
+import { useT } from "../useT";
 
 /**
  * Custom video/audio controls rendered BELOW the preview frame (not inside
@@ -32,6 +33,7 @@ export function PreviewToolbar() {
   const trim = useStore((s) => s.trim);
   const segmentsSource = useStore((s) => s.segmentsSource);
   const [playing, setPlaying] = useState(false);
+  const t = useT();
 
   const trimIn = Math.max(0, trimRange.in_sec);
   const trimOut = trimRange.out_sec > 0 ? Math.min(trimRange.out_sec, duration || 0) : (duration || 0);
@@ -148,7 +150,7 @@ export function PreviewToolbar() {
         type="button"
         className="player-btn"
         data-testid="player-play"
-        aria-label={playing ? "Pause" : "Play"}
+        aria-label={playing ? t("Pause") : t("Play")}
         onClick={togglePlay}
       >
         {playing ? (
@@ -166,8 +168,8 @@ export function PreviewToolbar() {
         type="button"
         className="player-btn"
         data-testid="player-stop"
-        aria-label="Stop (return to trim in)"
-        title="Stop — rewind to trim in"
+        aria-label={t("Stop (return to trim in)")}
+        title={t("Stop — rewind to trim in")}
         onClick={stop}
       >
         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
@@ -179,7 +181,7 @@ export function PreviewToolbar() {
           className="player-cut-toggle"
           data-testid="preview-cut-toggle"
           role="group"
-          aria-label="Preview version"
+          aria-label={t("Preview version")}
         >
           <button
             type="button"
@@ -187,9 +189,9 @@ export function PreviewToolbar() {
             data-testid="preview-mode-original"
             aria-pressed={!previewCut}
             onClick={() => setPreviewCut(false)}
-            title="Play the original, uncut clip"
+            title={t("Play the original, uncut clip")}
           >
-            Original
+            {t("Original")}
           </button>
           <button
             type="button"
@@ -200,9 +202,9 @@ export function PreviewToolbar() {
               setPreviewCut(true);
               seekTo(useStore.getState().currentTime);
             }}
-            title="Play the cut version — skips silenced gaps"
+            title={t("Play the cut version — skips silenced gaps")}
           >
-            Cuts
+            {t("Cuts")}
           </button>
         </div>
       )}
@@ -215,7 +217,7 @@ export function PreviewToolbar() {
         step={0.05}
         value={progressVal}
         onChange={onSeek}
-        aria-label="Seek"
+        aria-label={t("Seek")}
       />
       <span className="player-time" data-testid="player-time">
         {fmt(cutActive ? mapToCutTime(currentTime, cutKeeps) : currentTime)}{" "}

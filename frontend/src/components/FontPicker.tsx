@@ -6,6 +6,7 @@ import {
   type FontEntry,
   useFontStore,
 } from "../fonts";
+import { useT } from "../useT";
 
 type Props = {
   value: string;
@@ -25,6 +26,7 @@ export function FontPicker({ value, onChange }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const t = useT();
 
   useEffect(() => {
     if (!open) return;
@@ -61,7 +63,7 @@ export function FontPicker({ value, onChange }: Props) {
     setOpen(false);
   }
 
-  const displayLabel = value || (loaded ? "Pick a font" : "Loading fonts…");
+  const displayLabel = value || (loaded ? t("Pick a font") : t("Loading fonts…"));
 
   return (
     <div className="font-select" ref={rootRef}>
@@ -87,11 +89,11 @@ export function FontPicker({ value, onChange }: Props) {
         >
           <div className="font-list" ref={listRef}>
             {groups.length === 0 && (
-              <div className="font-empty">No fonts available</div>
+              <div className="font-empty">{t("No fonts available")}</div>
             )}
             {groups.map((g) => (
               <div key={g.category} className="font-group">
-                <div className="font-group-label">{CATEGORY_LABEL[g.category as FontCategory]}</div>
+                <div className="font-group-label">{t(CATEGORY_LABEL[g.category as FontCategory])}</div>
                 {g.items.map((f: FontEntry) => (
                   <button
                     key={f.family}

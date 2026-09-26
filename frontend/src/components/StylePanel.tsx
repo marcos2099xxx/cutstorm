@@ -1,6 +1,7 @@
 import { useStore } from "../store";
 import { FontPicker } from "./FontPicker";
 import { computeKeepsForRange, keepsDuration } from "../silence";
+import { useT } from "../useT";
 
 export function StylePanel() {
   const style = useStore((s) => s.style);
@@ -24,6 +25,7 @@ export function StylePanel() {
   const subsStreaming = useStore((s) => s.subsStreaming);
   const progressPhase = useStore((s) => s.progressPhase);
   const progressPercent = useStore((s) => s.progressPercent);
+  const t = useT();
 
   if (!hasVideo) return null;
 
@@ -57,10 +59,12 @@ export function StylePanel() {
   return (
     <div className="pane scroll" data-testid="style-panel">
       <div className="pane-header">
-        <h2>Style</h2>
+        <h2>{t("Style")}</h2>
       </div>
       <div className="pane-body">
-        <div className="section-title">Canvas {isAudioOnly ? "(audio + chromakey)" : ""}</div>
+        <div className="section-title">
+          {t("Canvas")} {isAudioOnly ? t("(audio + chromakey)") : ""}
+        </div>
         <div className="section">
           {!isAudioOnly && (
             <div className="pill-group" data-testid="canvas-mode-group">
@@ -70,7 +74,7 @@ export function StylePanel() {
                 onClick={() => setCanvas({ mode: "preset" })}
                 data-testid="canvas-mode-preset"
               >
-                Preset
+                {t("Preset")}
               </button>
               <button
                 type="button"
@@ -78,7 +82,7 @@ export function StylePanel() {
                 onClick={() => setCanvas({ mode: "custom" })}
                 data-testid="canvas-mode-custom"
               >
-                Custom crop
+                {t("Custom crop")}
               </button>
             </div>
           )}
@@ -94,7 +98,7 @@ export function StylePanel() {
                     onClick={() => setCanvas({ preset: p.key })}
                     data-testid={`canvas-preset-${p.key}`}
                   >
-                    {p.label}
+                    {t(p.label)}
                   </button>
                 ))}
               </div>
@@ -111,7 +115,7 @@ export function StylePanel() {
                   // horizontal crop — left/center/right
                   return (
                     <label>
-                      Crop side
+                      {t("Crop side")}
                       <div className="pill-group" data-testid="canvas-anchor-group">
                         {(["left", "center", "right"] as const).map((a) => (
                           <button
@@ -121,7 +125,7 @@ export function StylePanel() {
                             onClick={() => setCanvas({ crop_anchor: a })}
                             data-testid={`canvas-anchor-${a}`}
                           >
-                            {a[0].toUpperCase() + a.slice(1)}
+                            {t(a[0].toUpperCase() + a.slice(1))}
                           </button>
                         ))}
                       </div>
@@ -137,10 +141,10 @@ export function StylePanel() {
           {!isAudioOnly && canvas.mode === "custom" && (
             <>
               <div className="section-hint">
-                Drag the rectangle in the preview. Drag corners to resize. Any size, any position.
+                {t("Drag the rectangle in the preview. Drag corners to resize. Any size, any position.")}
               </div>
               <div className="grid-2">
-                <label>X %
+                <label>{t("X %")}
                   <input
                     type="number" min={0} max={100} step={0.5}
                     data-testid="custom-x"
@@ -148,7 +152,7 @@ export function StylePanel() {
                     onChange={(e) => setCustomCrop({ x_pct: Number(e.target.value) })}
                   />
                 </label>
-                <label>Y %
+                <label>{t("Y %")}
                   <input
                     type="number" min={0} max={100} step={0.5}
                     data-testid="custom-y"
@@ -156,7 +160,7 @@ export function StylePanel() {
                     onChange={(e) => setCustomCrop({ y_pct: Number(e.target.value) })}
                   />
                 </label>
-                <label>W %
+                <label>{t("W %")}
                   <input
                     type="number" min={5} max={100} step={0.5}
                     data-testid="custom-w"
@@ -164,7 +168,7 @@ export function StylePanel() {
                     onChange={(e) => setCustomCrop({ w_pct: Number(e.target.value) })}
                   />
                 </label>
-                <label>H %
+                <label>{t("H %")}
                   <input
                     type="number" min={5} max={100} step={0.5}
                     data-testid="custom-h"
@@ -174,7 +178,7 @@ export function StylePanel() {
                 </label>
               </div>
               <div className="section-hint" data-testid="custom-pixels">
-                Export: <strong>{Math.round(canvas.custom.w_pct / 100 * videoW)}×
+                {t("Export:")} <strong>{Math.round(canvas.custom.w_pct / 100 * videoW)}×
                 {Math.round(canvas.custom.h_pct / 100 * videoH)} px</strong>
               </div>
               <div className="pill-group">
@@ -182,17 +186,17 @@ export function StylePanel() {
                   type="button"
                   onClick={() => setCustomCrop({ x_pct: 0, y_pct: 0, w_pct: 100, h_pct: 100 })}
                   data-testid="custom-reset"
-                >Full frame</button>
+                >{t("Full frame")}</button>
                 <button
                   type="button"
                   onClick={() => setCustomCrop({ x_pct: 25, y_pct: 0, w_pct: 50, h_pct: 100 })}
                   data-testid="custom-center-vertical"
-                >Center vertical</button>
+                >{t("Center vertical")}</button>
                 <button
                   type="button"
                   onClick={() => setCustomCrop({ x_pct: 0, y_pct: 25, w_pct: 100, h_pct: 50 })}
                   data-testid="custom-center-horizontal"
-                >Center horizontal</button>
+                >{t("Center horizontal")}</button>
               </div>
             </>
           )}
@@ -213,7 +217,7 @@ export function StylePanel() {
                 ))}
               </div>
               <label>
-                Background / chromakey
+                {t("Background / chromakey")}
                 <div className="pill-group" data-testid="bg-color-presets">
                   {[
                     ["#00B140", "Green"],
@@ -228,7 +232,7 @@ export function StylePanel() {
                       onClick={() => setCanvas({ bg_color: color })}
                       data-testid={`bg-color-preset-${name.toLowerCase()}`}
                     >
-                      {name}
+                      {t(name)}
                     </button>
                   ))}
                 </div>
@@ -240,14 +244,13 @@ export function StylePanel() {
                 />
               </label>
               <div className="section-hint">
-                The exported MP4 will have this solid color as its video track. Apply chromakey
-                in your NLE (iMovie / Premiere) to overlay subtitles on another video.
+                {t("The exported MP4 will have this solid color as its video track. Apply chromakey in your NLE (iMovie / Premiere) to overlay subtitles on another video.")}
               </div>
             </>
           )}
         </div>
 
-        <div className="section-title">Mode</div>
+        <div className="section-title">{t("Mode")}</div>
         <div className="section">
           <div className="pill-group" data-testid="mode-group">
             {(["phrase", "word", "karaoke"] as const).map((m) => (
@@ -258,13 +261,13 @@ export function StylePanel() {
                 data-testid={`mode-${m}`}
                 type="button"
               >
-                {m[0].toUpperCase() + m.slice(1)}
+                {t(m[0].toUpperCase() + m.slice(1))}
               </button>
             ))}
           </div>
           {(style.mode === "word" || style.mode === "karaoke") && (
             <label>
-              Words per chunk
+              {t("Words per chunk")}
               <input
                 type="number"
                 min={1}
@@ -279,7 +282,7 @@ export function StylePanel() {
           )}
           {style.mode === "karaoke" && (
             <label>
-              Active word color
+              {t("Active word color")}
               <input
                 type="color"
                 data-testid="style-active-word-color"
@@ -292,17 +295,17 @@ export function StylePanel() {
           )}
         </div>
 
-        <div className="section-title">Font</div>
+        <div className="section-title">{t("Font")}</div>
         <div className="section">
           <label>
-            Family
+            {t("Family")}
             <FontPicker
               value={style.font_family}
               onChange={(family) => setStyle({ font_family: family })}
             />
           </label>
           <label>
-            Size
+            {t("Size")}
             <input
               type="number"
               min={8}
@@ -320,7 +323,7 @@ export function StylePanel() {
                 checked={style.bold}
                 onChange={(e) => setStyle({ bold: e.target.checked })}
               />
-              Bold
+              {t("Bold")}
             </label>
             <label className="inline-label">
               <input
@@ -329,7 +332,7 @@ export function StylePanel() {
                 checked={style.italic}
                 onChange={(e) => setStyle({ italic: e.target.checked })}
               />
-              Italic
+              {t("Italic")}
             </label>
             <label className="inline-label">
               <input
@@ -338,16 +341,16 @@ export function StylePanel() {
                 checked={style.uppercase}
                 onChange={(e) => setStyle({ uppercase: e.target.checked })}
               />
-              Uppercase
+              {t("Uppercase")}
             </label>
           </div>
         </div>
 
-        <div className="section-title">Colors</div>
+        <div className="section-title">{t("Colors")}</div>
         <div className="section">
           <div className="grid-2">
             <label>
-              Text
+              {t("Text")}
               <input
                 type="color"
                 data-testid="style-text-color"
@@ -356,7 +359,7 @@ export function StylePanel() {
               />
             </label>
             <label>
-              Outline
+              {t("Outline")}
               <input
                 type="color"
                 data-testid="style-outline-color"
@@ -368,7 +371,7 @@ export function StylePanel() {
             </label>
           </div>
           <label>
-            Outline width
+            {t("Outline width")}
             <input
               type="number"
               min={0}
@@ -380,7 +383,7 @@ export function StylePanel() {
           </label>
           <div className="grid-2">
             <label>
-              Shadow offset
+              {t("Shadow offset")}
               <input
                 type="number"
                 min={0}
@@ -391,7 +394,7 @@ export function StylePanel() {
               />
             </label>
             <label>
-              Shadow color
+              {t("Shadow color")}
               <input
                 type="color"
                 data-testid="style-shadow-color"
@@ -404,11 +407,11 @@ export function StylePanel() {
           </div>
         </div>
 
-        <div className="section-title">Background Box</div>
+        <div className="section-title">{t("Background Box")}</div>
         <div className="section">
           <div className="grid-2">
             <label>
-              Color
+              {t("Color")}
               <input
                 type="color"
                 data-testid="style-bg-color"
@@ -417,7 +420,7 @@ export function StylePanel() {
               />
             </label>
             <label>
-              Opacity
+              {t("Opacity")}
               <input
                 type="number"
                 min={0}
@@ -431,7 +434,7 @@ export function StylePanel() {
           </div>
           <div className="grid-2">
             <label>
-              Padding
+              {t("Padding")}
               <input
                 type="number"
                 min={0}
@@ -442,7 +445,7 @@ export function StylePanel() {
               />
             </label>
             <label>
-              Radius
+              {t("Radius")}
               <input
                 type="number"
                 min={0}
@@ -455,21 +458,21 @@ export function StylePanel() {
           </div>
         </div>
 
-        <div className="section-title">Auto-cut silences</div>
+        <div className="section-title">{t("Auto-cut silences")}</div>
         <div className="section">
-          <label className="inline-label" title="Remove gaps longer than threshold on export">
+          <label className="inline-label" title={t("Remove gaps longer than threshold on export")}>
             <input
               type="checkbox"
               data-testid="trim-enabled"
               checked={trim.enabled}
               onChange={(e) => setTrim({ enabled: e.target.checked })}
             />
-            Trim silences on export
+            {t("Trim silences on export")}
           </label>
           {trim.enabled && (
             <>
               <label>
-                Silence threshold (sec)
+                {t("Silence threshold (sec)")}
                 <input
                   type="range"
                   min={0.1}
@@ -480,11 +483,11 @@ export function StylePanel() {
                   onChange={(e) => setTrim({ threshold_sec: Number(e.target.value) })}
                 />
                 <span className="topbar-meta" data-testid="trim-threshold-value">
-                  {trim.threshold_sec.toFixed(2)} sec
+                  {t("{v} sec", { v: trim.threshold_sec.toFixed(2) })}
                 </span>
               </label>
               <label>
-                Padding around words (sec)
+                {t("Padding around words (sec)")}
                 <input
                   type="range"
                   min={0}
@@ -495,22 +498,23 @@ export function StylePanel() {
                   onChange={(e) => setTrim({ padding_sec: Number(e.target.value) })}
                 />
                 <span className="topbar-meta" data-testid="trim-padding-value">
-                  {trim.padding_sec.toFixed(2)} sec
+                  {t("{v} sec", { v: trim.padding_sec.toFixed(2) })}
                 </span>
               </label>
               <div className="trim-preview" data-testid="trim-preview">
-                <strong>{trimPreview.cuts}</strong> gaps will be cut ·{" "}
+                <strong>{trimPreview.cuts}</strong>{" "}
+                {trimPreview.cuts === 1 ? t("gap will be cut") : t("gaps will be cut")} ·{" "}
                 <strong>−{trimPreview.trimmed.toFixed(1)}s</strong> (
-                {Math.round((trimPreview.trimmed / Math.max(clipDuration, 0.01)) * 100)}% of video)
+                {Math.round((trimPreview.trimmed / Math.max(clipDuration, 0.01)) * 100)}% {t("of video")})
               </div>
             </>
           )}
         </div>
 
-        <div className="section-title">Position & Timing</div>
+        <div className="section-title">{t("Position & Timing")}</div>
         <div className="section">
           <label>
-            Alignment
+            {t("Alignment")}
             <div className="pill-group" data-testid="alignment-group">
               {(["left", "center", "right"] as const).map((a) => (
                 <button
@@ -519,7 +523,7 @@ export function StylePanel() {
                   onClick={() => setStyle({ alignment: a })}
                   type="button"
                 >
-                  {a[0].toUpperCase() + a.slice(1)}
+                  {t(a[0].toUpperCase() + a.slice(1))}
                 </button>
               ))}
             </div>
@@ -531,14 +535,14 @@ export function StylePanel() {
               }
               style={{ display: "none" }}
             >
-              <option value="left">Left</option>
-              <option value="center">Center</option>
-              <option value="right">Right</option>
+              <option value="left">{t("Left")}</option>
+              <option value="center">{t("Center")}</option>
+              <option value="right">{t("Right")}</option>
             </select>
           </label>
           <div className="grid-2">
             <label>
-              Fade in (ms)
+              {t("Fade in (ms)")}
               <input
                 type="number"
                 min={0}
@@ -550,7 +554,7 @@ export function StylePanel() {
               />
             </label>
             <label>
-              Fade out (ms)
+              {t("Fade out (ms)")}
               <input
                 type="number"
                 min={0}
@@ -564,7 +568,7 @@ export function StylePanel() {
           </div>
         </div>
 
-        <div className="section-title">Subtitles</div>
+        <div className="section-title">{t("Subtitles")}</div>
         <div className="section">
           <label className="inline-label">
             <input
@@ -573,17 +577,18 @@ export function StylePanel() {
               checked={useSubs}
               onChange={(e) => setUseSubs(e.target.checked)}
             />
-            Show & export subtitles
+            {t("Show & export subtitles")}
           </label>
           {subsStreaming && (
             <div className="section-hint" data-testid="subs-streaming-hint">
-              Generating subtitles — {progressPhase === "transcribe" ? `${progressPercent}%` : "…"}.
-              You can crop, edit style, or export at any time; subs appear as they finish.
+              {t("Generating subtitles — {p}. You can crop, edit style, or export at any time; subs appear as they finish.", {
+                p: progressPhase === "transcribe" ? `${progressPercent}%` : "…",
+              })}
             </div>
           )}
         </div>
 
-        <div className="section-title">Watermark</div>
+        <div className="section-title">{t("Watermark")}</div>
         <div className="section">
           <label className="inline-label">
             <input
@@ -592,7 +597,7 @@ export function StylePanel() {
               checked={watermark}
               onChange={(e) => setWatermark(e.target.checked)}
             />
-            Keep Cut/Storm watermark on export
+            {t("Keep Cut/Storm watermark on export")}
           </label>
         </div>
       </div>

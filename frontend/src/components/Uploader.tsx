@@ -1,8 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cancelFetchUrl, fetchVideoFromUrl, uploadVideo, videoUrl } from "../api";
+import type { Locale } from "../i18n";
 import { LANGUAGES, PINNED_LANGUAGES } from "../languages";
 import { newJobId, openProgressWs } from "../progress";
 import { useStore } from "../store";
+import { useT } from "../useT";
+import { LocaleSwitch } from "./LocaleSwitch";
 
 const QUALITY = [
   { value: "large-v3", label: "Best (large-v3)" },
@@ -10,6 +13,16 @@ const QUALITY = [
   { value: "small", label: "Fast (small)" },
   { value: "tiny", label: "Test (tiny)" },
 ];
+
+/** Localized language name (Español, Inglés…) with the static list as fallback. */
+function localizeLang(code: string, fallback: string, locale: Locale): string {
+  try {
+    const name = new Intl.DisplayNames([locale], { type: "language" }).of(code) ?? fallback;
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  } catch {
+    return fallback;
+  }
+}
 
 export function Uploader() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -25,12 +38,22 @@ export function Uploader() {
   const setUseSubs = useStore((s) => s.setUseSubs);
   const setJobId = useStore((s) => s.setJobId);
   const progressPhase = useStore((s) => s.progressPhase);
-  const [language, setLanguage] = useState<string>("en");
+  const locale = useStore((s) => s.locale);
+  const setLocale = useStore((s) => s.setLocale);
+  const t = useT();
+  const [language, setLanguage] = useState<string>(locale === "es" ? "es" : "en");
+  const [langTouched, setLangTouched] = useState(false);
   const [model, setModel] = useState<string>("large-v3");
   const [dragActive, setDragActive] = useState(false);
   const [urlValue, setUrlValue] = useState("");
   const abortRef = useRef<AbortController | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Keep the transcription language in sync with the UI language until the
+  // user picks one explicitly.
+  useEffect(() => {
+    if (!langTouched) setLanguage(locale === "es" ? "es" : "en");
+  }, [locale, langTouched]);
 
   async function doUpload(file: File) {
     setBusy("uploading");
@@ -91,7 +114,7 @@ export function Uploader() {
     const url = rawUrl.trim();
     if (!url) return;
     if (!/^https?:\/\//i.test(url)) {
-      setError("URL must start with http:// or https://");
+      setError(t("URL must start with http:// or https://"));
       return;
     }
     setBusy("uploading");
@@ -167,7 +190,7 @@ export function Uploader() {
     const typeOk = file.type.startsWith("video/") || file.type.startsWith("audio/") || file.type === "image/gif";
     const extOk = /\.(mp4|mov|mkv|webm|avi|gif|mp3|wav|m4a|ogg|flac|aac)$/i.test(file.name);
     if (!typeOk && !extOk) {
-      setError("Please drop a video or audio file.");
+      setError(t("Please drop a video or audio file."));
       return;
     }
     void doUpload(file);
@@ -180,8 +203,11 @@ export function Uploader() {
   return (
     <div className="start-screen" data-testid="uploader">
       <div className="start-card">
+        <div className="start-locale">
+          <LocaleSwitch locale={locale} onChange={setLocale} />
+        </div>
         <div className="start-title">
-          <h1>Start a new caption project</h1>
+          <h1>{t("Start a new caption project")}</h1>
         </div>
 
         <div className="url-import" data-testid="url-import-row">
@@ -190,7 +216,7 @@ export function Uploader() {
               type="url"
               data-testid="url-input"
               className="url-import-input"
-              placeholder="Paste a video URL (YouTube, X, Vimeo, TikTok…)"
+              placeholder={t("Paste a video URL (YouTube, X, Vimeo, TikTok…)")}
               value={urlValue}
               onChange={(e) => setUrlValue(e.target.value)}
               onKeyDown={(e) => {
@@ -210,7 +236,7 @@ export function Uploader() {
               onClick={() => void doUrlImport(urlValue)}
               disabled={disabled || !urlValue.trim()}
             >
-              Import
+              {t("Import")}
             </button>
           </div>
         </div>
@@ -231,7 +257,7 @@ export function Uploader() {
           role="button"
           tabIndex={0}
           aria-disabled={disabled}
-          aria-label="Upload video"
+          aria-label={t("Upload video")}
         >
           <div className="dropzone-icon" aria-hidden>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -243,14 +269,14 @@ export function Uploader() {
           <div className="dropzone-headline">
             {disabled
               ? progressPhase === "download"
-                ? "Downloading…"
+                ? t("Downloading…")
                 : progressPhase === "upload"
-                ? "Uploading…"
-                : "Transcribing…"
-              : "Drop a video or audio file or click to browse"}
+                ? t("Uploading…")
+                : t("Transcribing…")
+              : t("Drop a video or audio file or click to browse")}
           </div>
           <div className="dropzone-sub">
-            WhisperX runs locally — nothing leaves your machine.
+            {t("WhisperX runs locally — nothing leaves your machine.")}
           </div>
           <div className="dropzone-formats">MP4 · MOV · MKV · WebM · GIF · MP3 · WAV · M4A</div>
           <input
@@ -272,21 +298,21 @@ export function Uploader() {
             data-testid="cancel-button"
             type="button"
           >
-            Cancel
+            {t("Cancel")}
           </button>
         )}
 
         <div className="subs-settings" data-testid="subs-settings">
           <div className="subs-row">
             <div className="subs-row-text">
-              <div className="subs-row-title">Generate subtitles</div>
+              <div className="subs-row-title">{t("Generate subtitles")}</div>
               <div className="subs-row-hint">
                 {generateSubs
-                  ? "Whisper will transcribe after upload"
-                  : "Video editor only — no transcription"}
+                  ? t("Whisper will transcribe after upload")
+                  : t("Video editor only — no transcription")}
               </div>
             </div>
-            <label className="switch" data-testid="generate-subs-toggle-label" aria-label="Generate subtitles">
+            <label className="switch" data-testid="generate-subs-toggle-label" aria-label={t("Generate subtitles")}>
               <input
                 type="checkbox"
                 data-testid="generate-subs-toggle"
@@ -303,11 +329,19 @@ export function Uploader() {
           {generateSubs && (
             <div className="subs-opts" data-testid="subs-options">
               <label>
-                Language
-                <LanguageSelect value={language} onChange={setLanguage} disabled={disabled} />
+                {t("Language")}
+                <LanguageSelect
+                  value={language}
+                  onChange={(code) => {
+                    setLangTouched(true);
+                    setLanguage(code);
+                  }}
+                  disabled={disabled}
+                  locale={locale}
+                />
               </label>
               <label>
-                Quality
+                {t("Quality")}
                 <select
                   data-testid="model-select"
                   value={model}
@@ -316,7 +350,7 @@ export function Uploader() {
                 >
                   {QUALITY.map((m) => (
                     <option key={m.value} value={m.value}>
-                      {m.label}
+                      {t(m.label)}
                     </option>
                   ))}
                 </select>
@@ -334,12 +368,13 @@ type LangSelectProps = {
   value: string;
   onChange: (code: string) => void;
   disabled?: boolean;
+  locale: Locale;
 };
 
 const POPOVER_MAX_H = 320;
 const POPOVER_MIN_W = 280;
 
-function LanguageSelect({ value, onChange, disabled }: LangSelectProps) {
+function LanguageSelect({ value, onChange, disabled, locale }: LangSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
@@ -348,6 +383,7 @@ function LanguageSelect({ value, onChange, disabled }: LangSelectProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const t = useT();
 
   useEffect(() => {
     if (!open) return;
@@ -432,7 +468,9 @@ function LanguageSelect({ value, onChange, disabled }: LangSelectProps) {
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className="lang-trigger-label">{selected?.name ?? value}</span>
+        <span className="lang-trigger-label">
+          {selected ? localizeLang(selected.code, selected.name, locale) : value}
+        </span>
         <span className="lang-chevron" aria-hidden>▾</span>
       </button>
       {open && (
@@ -446,7 +484,7 @@ function LanguageSelect({ value, onChange, disabled }: LangSelectProps) {
               ref={searchRef}
               type="text"
               className="lang-search"
-              placeholder="Search languages…"
+              placeholder={t("Search languages…")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={onSearchKey}
@@ -456,7 +494,7 @@ function LanguageSelect({ value, onChange, disabled }: LangSelectProps) {
           <div className="lang-list" ref={listRef}>
             {flat.pinned.length > 0 && (
               <div className="lang-section">
-                <span>Best quality</span>
+                <span>{t("Best quality")}</span>
                 <span className="lang-section-hint">{flat.pinned.length}</span>
               </div>
             )}
@@ -464,7 +502,7 @@ function LanguageSelect({ value, onChange, disabled }: LangSelectProps) {
               <LangOption
                 key={l.code}
                 code={l.code}
-                name={l.name}
+                name={localizeLang(l.code, l.name, locale)}
                 selected={l.code === value}
                 active={i === activeIdx}
                 onSelect={pick}
@@ -473,7 +511,7 @@ function LanguageSelect({ value, onChange, disabled }: LangSelectProps) {
             ))}
             {flat.others.length > 0 && (
               <div className="lang-section">
-                <span>All languages</span>
+                <span>{t("All languages")}</span>
                 <span className="lang-section-hint">{flat.others.length}</span>
               </div>
             )}
@@ -483,7 +521,7 @@ function LanguageSelect({ value, onChange, disabled }: LangSelectProps) {
                 <LangOption
                   key={l.code}
                   code={l.code}
-                  name={l.name}
+                  name={localizeLang(l.code, l.name, locale)}
                   selected={l.code === value}
                   active={idx === activeIdx}
                   onSelect={pick}
@@ -492,7 +530,7 @@ function LanguageSelect({ value, onChange, disabled }: LangSelectProps) {
               );
             })}
             {flat.all.length === 0 && (
-              <div className="lang-empty">No matches</div>
+              <div className="lang-empty">{t("No matches")}</div>
             )}
           </div>
         </div>

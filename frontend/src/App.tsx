@@ -10,8 +10,10 @@ import { StylePanel } from "./components/StylePanel";
 import { TopBar } from "./components/TopBar";
 import { VideoPreview } from "./components/VideoPreview";
 import { useHotkeys } from "./hotkeys";
+import { translateError } from "./i18n";
 import { openProgressWs, progressHeartbeat } from "./progress";
 import { useStore } from "./store";
+import { useT } from "./useT";
 
 function isRenderMode(): boolean {
   if (typeof window === "undefined") return false;
@@ -25,8 +27,14 @@ export function App() {
   const clearError = useStore((s) => s.setError);
   const hasVideo = useStore((s) => !!s.videoUrl);
   const isAudioOnly = useStore((s) => s.isAudioOnly);
+  const locale = useStore((s) => s.locale);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const t = useT();
   useHotkeys();
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   // One-shot recovery after page reload. Backend meta.json is the source of
   // truth — we ignore the persisted subsStreaming flag and always ask the
@@ -65,9 +73,9 @@ export function App() {
         useStore.getState().setJobId(null);
         useStore.getState().setProgress("idle", 0);
         if (status === "stale") {
-          useStore.getState().setError("Transcription was interrupted (server restarted). Reload the video to try again.");
+          useStore.getState().setError(t("Transcription was interrupted (server restarted). Reload the video to try again."));
         } else if (status === "error") {
-          useStore.getState().setError(meta.error ?? "Transcription failed.");
+          useStore.getState().setError(meta.error ?? t("Transcription failed."));
         }
         return;
       }
@@ -127,7 +135,7 @@ export function App() {
       if (Date.now() - last > STUCK_AFTER_MS) {
         alreadyWarned = true;
         s.setError(
-          "Transcription seems stuck — no progress for 5 minutes. Cancel and try again.",
+          t("Transcription seems stuck — no progress for 5 minutes. Cancel and try again."),
         );
       }
     }, 30_000);
@@ -157,9 +165,9 @@ export function App() {
           data-testid="error-toast"
           role="alert"
           onClick={() => clearError(null)}
-          title="click to dismiss"
+          title={t("click to dismiss")}
         >
-          {error}
+          {translateError(error, locale)}
         </div>
       )}
     </div>

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { temporal } from "zundo";
+import { detectLocale, type Locale } from "./i18n";
 import { computeKeepsForRange, snapToKeep } from "./silence";
 
 export type Word = { start: number; end: number; text: string };
@@ -100,6 +101,8 @@ type State = {
   duration: number;
   videoW: number;
   videoH: number;
+  /** UI language. Auto-detected from the browser on first run, persisted. */
+  locale: Locale;
   /** Active transcript — alias of segmentsSource or segmentsExtra depending
    * on `subtitleTrack`. Kept on the top level so existing code that reads
    * `s.segments` still finds the right data without refactor. */
@@ -153,6 +156,7 @@ type Actions = {
     url: string;
     is_audio_only?: boolean;
   }) => void;
+  setLocale: (locale: Locale) => void;
   loadProject: (r: {
     video_id: string;
     duration: number;
@@ -247,6 +251,7 @@ export const useStore = create<State & Actions>()(
       duration: 0,
       videoW: 0,
       videoH: 0,
+      locale: detectLocale(),
       segments: [],
       segmentsSource: [],
       segmentsExtra: [],
@@ -284,11 +289,11 @@ export const useStore = create<State & Actions>()(
       watermark: true,
       subsStreaming: false,
       jobId: null,
+      setLocale: (locale) => set({ locale }),
       setUploaded: (r) =>
         set((s) => {
           const isAudio = !!r.is_audio_only || (r.width === 0 && r.height === 0);
-          return {
-            videoId: r.video_id,
+          return {            videoId: r.video_id,
             videoUrl: r.url,
             duration: r.duration,
             videoW: r.width,
@@ -643,6 +648,7 @@ export const useStore = create<State & Actions>()(
         duration: s.duration,
         videoW: s.videoW,
         videoH: s.videoH,
+        locale: s.locale,
         segments: s.segments,
         segmentsSource: s.segmentsSource,
         segmentsExtra: s.segmentsExtra,
@@ -661,8 +667,7 @@ export const useStore = create<State & Actions>()(
         subsStreaming: s.subsStreaming,
         jobId: s.jobId,
       }),
-        version: 8,
-        // Historical fields migrate forward:
+        version: 9,        // Historical fields migrate forward:
         //   v1→v2: `canvas` gained mode/crop_anchor/custom (Feature 1).
         //   v2→v3: `trimRange` added (Feature Trim in/out).
         //   v3→v4: `audio` added (Feature Volume + extra track).
@@ -728,6 +733,10 @@ export const useStore = create<State & Actions>()(
             p.segmentsSource = (p.segmentsSource as unknown) ?? segs;
             p.segmentsExtra = (p.segmentsExtra as unknown) ?? [];
             p.subtitleTrack = (p.subtitleTrack as unknown) ?? "source";
+          }
+          if (version < 9) {
+            // v8→v9: UI locale (auto-detected on first run).
+            p.locale = (p.locale as unknown) ?? detectLocale();
           }
           return p;
         },

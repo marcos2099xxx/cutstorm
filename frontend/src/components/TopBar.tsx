@@ -3,7 +3,9 @@ import { exportVideo, downloadUrl, type ExportFormat, type GifQuality } from "..
 import logoUrl from "../assets/lockup.png";
 import { newJobId, openProgressWs } from "../progress";
 import { useStore } from "../store";
+import { useT } from "../useT";
 import { HotkeysHelp } from "./HotkeysHelp";
+import { LocaleSwitch } from "./LocaleSwitch";
 import { UndoRedo } from "./UndoRedo";
 
 function fmtTime(t: number): string {
@@ -38,6 +40,9 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
   const setError = useStore((s) => s.setError);
   const setProgress = useStore((s) => s.setProgress);
   const newProject = useStore((s) => s.newProject);
+  const locale = useStore((s) => s.locale);
+  const setLocale = useStore((s) => s.setLocale);
+  const t = useT();
   const [format, setFormat] = useState<ExportFormat>("mp4");
   const [gifQuality, setGifQuality] = useState<GifQuality>("medium");
   const [encodeSpeed, setEncodeSpeed] = useState<"quality" | "fast">("quality");
@@ -95,9 +100,9 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
         <button
           className="icon burger"
           onClick={onOpenSidebar}
-          aria-label="Open saved projects"
+          aria-label={t("Open saved projects")}
           data-testid="open-sidebar"
-          title="Saved projects"
+          title={t("Saved projects")}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -110,7 +115,10 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
         {videoId && (
           <>
             <span className="topbar-meta">
-              {videoW}×{videoH} · {fmtTime(duration)} · {segments.length} segments
+              {videoW}×{videoH} · {fmtTime(duration)} ·{" "}
+              {segments.length === 1
+                ? t("{n} segment", { n: segments.length })
+                : t("{n} segments", { n: segments.length })}
             </span>
             <UndoRedo />
             <HotkeysHelp />
@@ -120,7 +128,7 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
               disabled={busy !== "idle"}
               data-testid="new-project"
             >
-              New Project
+              {t("New Project")}
             </button>
             <div className="export-group">
               <select
@@ -129,7 +137,7 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
                 value={format}
                 onChange={(e) => setFormat(e.target.value as ExportFormat)}
                 disabled={busy !== "idle"}
-                aria-label="Export format"
+                aria-label={t("Export format")}
               >
                 <option value="mp4">MP4</option>
                 <option value="gif">GIF</option>
@@ -141,11 +149,11 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
                   value={gifQuality}
                   onChange={(e) => setGifQuality(e.target.value as GifQuality)}
                   disabled={busy !== "idle"}
-                  aria-label="GIF quality"
+                  aria-label={t("GIF quality")}
                 >
-                  <option value="low">Low · 320px · 10fps</option>
-                  <option value="medium">Medium · 480px · 15fps</option>
-                  <option value="high">High · 720px · 20fps</option>
+                  <option value="low">{t("Low · 320px · 10fps")}</option>
+                  <option value="medium">{t("Medium · 480px · 15fps")}</option>
+                  <option value="high">{t("High · 720px · 20fps")}</option>
                 </select>
               )}
               {format === "mp4" && (
@@ -155,11 +163,11 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
                   value={encodeSpeed}
                   onChange={(e) => setEncodeSpeed(e.target.value as "quality" | "fast")}
                   disabled={busy !== "idle"}
-                  aria-label="Export quality/speed"
-                  title="Fast uses a quicker encoder preset (medium/CRF 18) for drafts"
+                  aria-label={t("Export quality/speed")}
+                  title={t("Fast uses a quicker encoder preset (medium/CRF 18) for drafts")}
                 >
-                  <option value="quality">High quality</option>
-                  <option value="fast">Fast draft</option>
+                  <option value="quality">{t("High quality")}</option>
+                  <option value="fast">{t("Fast draft")}</option>
                 </select>
               )}
               <button
@@ -168,11 +176,12 @@ export function TopBar({ onOpenSidebar }: TopBarProps) {
                 disabled={busy !== "idle"}
                 data-testid="export-button"
               >
-                {busy === "exporting" ? "Exporting…" : "Export"}
+                {busy === "exporting" ? t("Exporting…") : t("Export")}
               </button>
             </div>
           </>
         )}
+        <LocaleSwitch locale={locale} onChange={setLocale} />
       </div>
     </header>
   );

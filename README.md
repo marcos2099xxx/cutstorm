@@ -70,6 +70,7 @@ Everything — URL download, Whisper transcription, subtitle rendering, ffmpeg e
     - [ ] SRT / VTT sidecar download
     - [ ] WebM / ProRes targets
 - [x] **Runs anywhere**
+    - [x] English / Spanish UI (auto-detected, switchable)
     - [x] Single Docker container, one port
     - [x] Linux, macOS, Windows — anywhere Docker runs
     - [x] No account, no cloud, no telemetry

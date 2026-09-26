@@ -3,6 +3,7 @@ import { importSubtitles } from "../api";
 import { getAudioMix } from "../audioMix";
 import { newJobId, openProgressWs } from "../progress";
 import { useStore } from "../store";
+import { useT } from "../useT";
 
 function fmtTimestamp(t: number): string {
   if (!Number.isFinite(t) || t < 0) t = 0;
@@ -38,6 +39,7 @@ export function SegmentList() {
   const replaceSourceSegments = useStore((s) => s.replaceSourceSegments);
   const replaceInSegments = useStore((s) => s.replaceInSegments);
   const mergeSegmentWithNext = useStore((s) => s.mergeSegmentWithNext);
+  const t = useT();
 
   const [query, setQuery] = useState("");
   const [showReplace, setShowReplace] = useState(false);
@@ -69,7 +71,7 @@ export function SegmentList() {
     if (!videoId) return;
     if (
       useStore.getState().segmentsSource.length > 0 &&
-      !window.confirm("Replace the current transcript with the imported subtitles?")
+      !window.confirm(t("Replace the current transcript with the imported subtitles?"))
     ) {
       return;
     }
@@ -117,7 +119,7 @@ export function SegmentList() {
   return (
     <div className="pane scroll" data-testid="segments-panel">
       <div className="pane-header">
-        <h2>Transcript</h2>
+        <h2>{t("Transcript")}</h2>
         <span className="topbar-meta">{segments.length}</span>
       </div>
       <div className="subtitle-track-tabs" data-testid="subtitle-track-tabs">
@@ -128,8 +130,8 @@ export function SegmentList() {
           aria-pressed={subtitleTrack === "source"}
           onClick={() => setSubtitleTrack("source")}
         >
-          Source <span className="subtitle-track-count">{segmentsSource.length}</span>
-          {sourceTranscribing && <span className="subtitle-track-dot" aria-label="transcribing" />}
+          {t("Source")} <span className="subtitle-track-count">{segmentsSource.length}</span>
+          {sourceTranscribing && <span className="subtitle-track-dot" aria-label={t("transcribing")} />}
         </button>
         <button
           type="button"
@@ -138,10 +140,10 @@ export function SegmentList() {
           aria-pressed={subtitleTrack === "extra"}
           disabled={!extraAvailable}
           onClick={() => setSubtitleTrack("extra")}
-          title={extraAvailable ? "Switch to extra-audio captions" : "Generate captions from extra audio first"}
+          title={extraAvailable ? t("Switch to extra-audio captions") : t("Generate captions from extra audio first")}
         >
-          Extra <span className="subtitle-track-count">{segmentsExtra.length}</span>
-          {extraTranscribing && <span className="subtitle-track-dot" aria-label="transcribing" />}
+          {t("Extra")} <span className="subtitle-track-count">{segmentsExtra.length}</span>
+          {extraTranscribing && <span className="subtitle-track-dot" aria-label={t("transcribing")} />}
         </button>
       </div>
       <div className="subtitle-tools">
@@ -149,13 +151,13 @@ export function SegmentList() {
           type="text"
           className="segment-search"
           data-testid="segment-search"
-          placeholder="Search transcript…"
+          placeholder={t("Search transcript…")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
         {q && (
           <span className="segment-search-count" data-testid="segment-search-count">
-            {rows.length} of {segments.length}
+            {t("{a} of {b}", { a: rows.length, b: segments.length })}
           </span>
         )}
         <button
@@ -165,7 +167,7 @@ export function SegmentList() {
           aria-pressed={showReplace}
           onClick={() => setShowReplace((v) => !v)}
         >
-          Replace
+          {t("Replace")}
         </button>
         <button
           type="button"
@@ -173,13 +175,13 @@ export function SegmentList() {
           data-testid="import-subs-button"
           disabled={importing}
           onClick={() => importRef.current?.click()}
-          title="Replace the transcript with an .srt/.vtt file"
+          title={t("Replace the transcript with an .srt/.vtt file")}
         >
-          {importing ? "Importing…" : "Import .srt/.vtt"}
+          {importing ? t("Importing…") : t("Import .srt/.vtt")}
         </button>
         <label
           className="segment-align"
-          title="Run forced alignment against the audio for accurate word timings (slower)"
+          title={t("Run forced alignment against the audio for accurate word timings (slower)")}
         >
           <input
             type="checkbox"
@@ -187,7 +189,7 @@ export function SegmentList() {
             checked={alignImport}
             onChange={(e) => setAlignImport(e.target.checked)}
           />
-          Align
+          {t("Align")}
         </label>
         <input
           ref={importRef}
@@ -207,14 +209,14 @@ export function SegmentList() {
           <input
             type="text"
             data-testid="segment-replace-find"
-            placeholder="Find"
+            placeholder={t("Find")}
             value={findText}
             onChange={(e) => setFindText(e.target.value)}
           />
           <input
             type="text"
             data-testid="segment-replace-with"
-            placeholder="Replace with"
+            placeholder={t("Replace with")}
             value={replaceText}
             onChange={(e) => setReplaceText(e.target.value)}
           />
@@ -224,7 +226,7 @@ export function SegmentList() {
             disabled={!findText}
             onClick={() => replaceInSegments(findText, replaceText)}
           >
-            Replace all
+            {t("Replace all")}
           </button>
         </div>
       )}
@@ -232,7 +234,11 @@ export function SegmentList() {
         {transcribing && segments.length > 0 && (
           <div className="transcribing-strip" data-testid="transcribing-strip">
             <span className="transcribing-dot" aria-hidden />
-            <span>Transcribing… {segments.length} segment{segments.length === 1 ? "" : "s"} so far · {progressPercent}%</span>
+            <span>
+              {segments.length === 1
+                ? t("Transcribing… {n} segment so far · {p}%", { n: segments.length, p: progressPercent })
+                : t("Transcribing… {n} segments so far · {p}%", { n: segments.length, p: progressPercent })}
+            </span>
           </div>
         )}
         {segments.length === 0 ? (
@@ -242,17 +248,17 @@ export function SegmentList() {
                 <div className="transcribing-spinner" />
                 <span className="transcribing-percent">{progressPercent}%</span>
               </div>
-              <div className="transcribing-title">Transcribing with Whisper…</div>
-              <div className="transcribing-hint">Segments will appear here as they're recognised.</div>
+              <div className="transcribing-title">{t("Transcribing with Whisper…")}</div>
+              <div className="transcribing-hint">{t("Segments will appear here as they're recognised.")}</div>
             </div>
           ) : (
             <p style={{ color: "var(--fg-muted)", fontSize: 13 }}>
-              No speech detected yet.
+              {t("No speech detected yet.")}
             </p>
           )
         ) : rows.length === 0 ? (
           <p style={{ color: "var(--fg-muted)", fontSize: 13 }} data-testid="segment-search-empty">
-            No matches for “{query.trim()}”.
+            {t("No matches for “{q}”.", { q: query.trim() })}
           </p>
         ) : (
           <div className="segments" data-testid="segments-list">
@@ -262,7 +268,7 @@ export function SegmentList() {
                 className={`segment${i === activeIdx ? " active" : ""}`}
                 data-testid={`segment-${i}`}
                 data-active={i === activeIdx ? "1" : "0"}
-                title="Click to jump to this segment"
+                title={t("Click to jump to this segment")}
                 onClick={(e) => {
                   if ((e.target as HTMLElement).closest("input,button")) return;
                   jumpTo(seg.start);
@@ -272,8 +278,8 @@ export function SegmentList() {
                   type="button"
                   className="segment-jump"
                   data-testid={`segment-${i}-jump`}
-                  aria-label={`jump to segment ${i}`}
-                  title="Jump to this segment"
+                  aria-label={t("jump to segment {i}", { i })}
+                  title={t("Jump to this segment")}
                   onClick={() => jumpTo(seg.start)}
                 >
                   <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" aria-hidden>
@@ -322,8 +328,8 @@ export function SegmentList() {
                   type="button"
                   className="segment-merge"
                   data-testid={`segment-${i}-merge`}
-                  aria-label={`merge segment ${i} with next`}
-                  title="Merge with next segment"
+                  aria-label={t("merge segment {i} with next", { i })}
+                  title={t("Merge with next segment")}
                   disabled={i + 1 >= segments.length}
                   onClick={() => mergeSegmentWithNext(i)}
                 >
@@ -337,8 +343,8 @@ export function SegmentList() {
                   className="segment-del"
                   onClick={() => deleteSegment(i)}
                   data-testid={`segment-${i}-delete`}
-                  aria-label={`delete segment ${i}`}
-                  title="Delete segment (Del at playhead)"
+                  aria-label={t("delete segment {i}", { i })}
+                  title={t("Delete segment (Del at playhead)")}
                 >
                   ×
                 </button>

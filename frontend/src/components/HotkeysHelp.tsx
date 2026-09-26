@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useT } from "../useT";
 
 const isMac =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -7,6 +8,7 @@ const SHIFT = "\u21e7";
 
 type Row = { keys: string[]; desc: string };
 
+// `title`/`desc` are i18n keys (English source strings).
 const GROUPS: { title: string; rows: Row[] }[] = [
   {
     title: "Playback",
@@ -32,6 +34,7 @@ const GROUPS: { title: string; rows: Row[] }[] = [
 export function HotkeysHelp() {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const t = useT();
 
   useEffect(() => {
     if (!open) return;
@@ -54,9 +57,9 @@ export function HotkeysHelp() {
       <button
         className="icon"
         onClick={() => setOpen((o) => !o)}
-        aria-label="Keyboard shortcuts"
+        aria-label={t("Keyboard shortcuts")}
         aria-expanded={open}
-        title="Keyboard shortcuts"
+        title={t("Keyboard shortcuts")}
         data-testid="hotkeys-help-button"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -67,10 +70,10 @@ export function HotkeysHelp() {
       </button>
       {open && (
         <div className="hotkeys-popover" role="dialog" data-testid="hotkeys-popover">
-          <div className="hotkeys-header">Keyboard shortcuts</div>
+          <div className="hotkeys-header">{t("Keyboard shortcuts")}</div>
           {GROUPS.map((g) => (
             <div className="hotkeys-group" key={g.title}>
-              <div className="hotkeys-group-title">{g.title}</div>
+              <div className="hotkeys-group-title">{t(g.title)}</div>
               {g.rows.map((r) => (
                 <div className="hotkeys-row" key={r.desc}>
                   <div className="hotkeys-keys">
@@ -78,12 +81,12 @@ export function HotkeysHelp() {
                       <kbd key={i}>{k}</kbd>
                     ))}
                   </div>
-                  <div className="hotkeys-desc">{r.desc}</div>
+                  <div className="hotkeys-desc">{t(r.desc)}</div>
                 </div>
               ))}
             </div>
           ))}
-          <div className="hotkeys-footer">Shortcuts ignore focus on inputs.</div>
+          <div className="hotkeys-footer">{t("Shortcuts ignore focus on inputs.")}</div>
         </div>
       )}
     </div>

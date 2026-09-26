@@ -8,6 +8,7 @@ import { clearExtraBlob, getExtraBlob, setExtraBlob } from "../extraBlobs";
 import { newJobId, openProgressWs } from "../progress";
 import { computeKeepsForRange, cutGaps, keepsDuration } from "../silence";
 import { useStore } from "../store";
+import { useT } from "../useT";
 import { computePeaks } from "../waveform";
 
 function fmt(t: number): string {
@@ -35,6 +36,7 @@ export function Timeline() {
   const setLoop = useStore((s) => s.setLoop);
   const trim = useStore((s) => s.trim);
   const segmentsSource = useStore((s) => s.segmentsSource);
+  const t = useT();
 
   const outSec = trimRange.out_sec > 0 ? trimRange.out_sec : duration;
   const inSec = trimRange.in_sec;
@@ -83,31 +85,33 @@ export function Timeline() {
         <span style={{ opacity: 0.4 }}>—</span>
         <span>{fmt(outSec)}</span>
         <span style={{ opacity: 0.4 }}>·</span>
-        <span>{kept.toFixed(2)}s kept</span>
+        <span>{t("{s}s kept", { s: kept.toFixed(2) })}</span>
         {cutInfo.count > 0 && (
           <>
             <span style={{ opacity: 0.4 }}>·</span>
             <span className="timeline-cuts" data-testid="timeline-cuts">
-              {cutInfo.count} cuts · −{cutInfo.seconds.toFixed(1)}s
+              {cutInfo.count === 1
+                ? t("{n} cut · −{s}s", { n: cutInfo.count, s: cutInfo.seconds.toFixed(1) })
+                : t("{n} cuts · −{s}s", { n: cutInfo.count, s: cutInfo.seconds.toFixed(1) })}
             </span>
           </>
         )}
         <span style={{ opacity: 0.4 }}>·</span>
-        <label className="loop-toggle" data-testid="loop-toggle-label" title="Loop the selected slice across the extra audio's full duration (Coub mode)">
+        <label className="loop-toggle" data-testid="loop-toggle-label" title={t("Loop the selected slice across the extra audio's full duration (Coub mode)")}>
           <input
             type="checkbox"
             data-testid="loop-toggle"
             checked={loopArmed}
             onChange={(e) => setLoop(e.target.checked)}
           />
-          <span>Loop</span>
+          <span>{t("Loop")}</span>
           {loopActive && (
             <span className="loop-target" data-testid="loop-target">
               → {audio.extraAudioDuration.toFixed(1)}s
             </span>
           )}
           {loopArmed && !loopActive && (
-            <span className="loop-hint" data-testid="loop-hint">(needs extra audio)</span>
+            <span className="loop-hint" data-testid="loop-hint">{t("(needs extra audio)")}</span>
           )}
         </label>
       </div>
@@ -280,10 +284,11 @@ function SourceTrack({
   const inPct = (inSec / duration) * 100;
   const outPct = (outSec / duration) * 100;
   const ctPct = (currentTime / duration) * 100;
+  const t = useT();
   return (
-    <div className="track-row" data-testid="source-track">
+      <div className="track-row" data-testid="source-track">
       <div className="track-label">
-        <span className="track-label-text">Audio</span>
+        <span className="track-label-text">{t("Audio")}</span>
         <VolumeSlider value={volume} onChange={onVolume} testId="source-volume" />
       </div>
       <div className="track-body">
@@ -315,6 +320,7 @@ function ExtraTrack({
 }) {
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const t = useT();
   const peakKey = audio.extraAudioId ? `extra:${audio.extraAudioId}` : null;
   const extraBlobUrl = useExtraBlobUrl(audio.extraAudioId);
   // Prefer server-computed peaks; fall back to client decode of the blob.
@@ -435,7 +441,7 @@ function ExtraTrack({
   if (!audio.extraAudioId) {
     return (
       <div className="track-row track-row-empty" data-testid="extra-track-empty">
-        <div className="track-label">Extra</div>
+        <div className="track-label">{t("Extra")}</div>
         <button
           type="button"
           className="track-add"
@@ -445,7 +451,7 @@ function ExtraTrack({
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
         >
-          {uploading ? "Uploading…" : "+ Add audio track (mp3/wav/m4a/ogg/flac/aac)"}
+          {uploading ? t("Uploading…") : t("+ Add audio track (mp3/wav/m4a/ogg/flac/aac)")}
         </button>
         <input
           ref={inputRef}
@@ -470,7 +476,7 @@ function ExtraTrack({
   return (
     <div className="track-row" data-testid="extra-track">
       <div className="track-label">
-        <span className="track-label-text">Extra</span>
+        <span className="track-label-text">{t("Extra")}</span>
         <VolumeSlider value={audio.extraVolume} onChange={(v) => setAudio({ extraVolume: v })} testId="extra-volume" />
       </div>
       <div className="track-body">
@@ -495,9 +501,9 @@ function ExtraTrack({
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
               onClick={onCancelExtraTranscribe}
-              title="Stop transcribing this track"
+              title={t("Stop transcribing this track")}
             >
-              Cancel
+              {t("Cancel")}
             </button>
           ) : (
             <button
@@ -507,9 +513,9 @@ function ExtraTrack({
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
               onClick={onTranscribeExtra}
-              title="Run whisper on this audio track and add a separate subtitle track"
+              title={t("Run whisper on this audio track and add a separate subtitle track")}
             >
-              {hasExtraSubs ? "Re-generate subs" : "Generate subs"}
+              {hasExtraSubs ? t("Re-generate subs") : t("Generate subs")}
             </button>
           )}
           <button
@@ -519,7 +525,7 @@ function ExtraTrack({
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
             onClick={clear}
-            title="Remove extra track"
+            title={t("Remove extra track")}
           >
             ×
           </button>
