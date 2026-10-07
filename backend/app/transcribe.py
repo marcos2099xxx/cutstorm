@@ -78,18 +78,22 @@ def _touch_activity() -> None:
     _last_activity = _time.monotonic()
 
 
-def _unload_idle_models(idle_sec: float, now: float | None = None) -> list[str]:
+def _unload_idle_models(idle_sec: float, now: float | None = None, force: bool = False) -> list[str]:
     """Drop cached ASR/alignment models after `idle_sec` without activity.
 
     Returns the names of the evicted models (empty when nothing was evicted).
     Never evicts while a transcription is in flight — callers re-touch the
-    activity timestamp when a run ends.
+    activity timestamp when a run ends. `force=True` skips the idle-time
+    check (manual reload) but keeps the in-flight guard.
     """
-    if idle_sec <= 0 or _active_transcribes > 0:
+    if _active_transcribes > 0:
         return []
-    now = _time.monotonic() if now is None else now
-    if now - _last_activity < idle_sec:
-        return []
+    if not force:
+        if idle_sec <= 0:
+            return []
+        now = _time.monotonic() if now is None else now
+        if now - _last_activity < idle_sec:
+            return []
     unloaded: list[str] = []
     with _whisper_model_lock:
         for name in list(_whisper_models):
@@ -117,6 +121,152 @@ def _track_activity(fn):
     return wrapper
 
 
+# --- model download watchdog ------------------------------------------------
+# huggingface_hub has no stall timeout for in-flight downloads: a silently
+# dropped connection leaves `snapshot_download` hung forever and the caller
+# (and its model lock) with it. We load models in a supervised thread while
+# polling the HF cache for `*.incomplete` blob growth; no growth for
+# WHISPER_DOWNLOAD_STALL_SEC → raise so the retry loop can re-attempt.
+_MODEL_RETRY_ATTEMPTS = 3
+_MODEL_RETRY_BACKOFF_SEC = 2.0
+
+_download_state_lock = _threading.Lock()
+# what / bytes / active / error — snapshot for GET /api/model/status.
+_download_state: dict = {"what": None, "bytes": 0, "active": False, "error": None}
+_download_listeners: list[Callable[[str, int], None]] = []
+
+
+def _incomplete_bytes() -> int:
+    """Total size of every in-flight HF blob under MODELS_DIR. Concurrent
+    downloads (asr + align) share one counter — fine for progress display and
+    stall detection, which only care that *something* is still moving."""
+    total = 0
+    try:
+        for p in Path(_models_dir()).glob("models--*/blobs/*.incomplete"):
+            try:
+                total += p.stat().st_size
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return total
+
+
+def download_status() -> dict:
+    with _download_state_lock:
+        st = dict(_download_state)
+    st["downloaded_mb"] = round(st.pop("bytes", 0) / (1024 * 1024), 1)
+    return st
+
+
+def reset_download_state() -> None:
+    with _download_state_lock:
+        _download_state.update(what=None, bytes=0, active=False, error=None)
+
+
+def add_download_listener(cb: Callable[[str, int], None]):
+    """Register a progress listener (what, bytes). Returns an unsubscribe fn."""
+    with _download_state_lock:
+        _download_listeners.append(cb)
+
+    def _remove() -> None:
+        try:
+            with _download_state_lock:
+                _download_listeners.remove(cb)
+        except ValueError:
+            pass
+
+    return _remove
+
+
+def _notify_download(what: str, nbytes: int) -> None:
+    with _download_state_lock:
+        _download_state.update(what=what, bytes=nbytes, active=True, error=None)
+        listeners = list(_download_listeners)
+    for cb in listeners:
+        try:
+            cb(what, nbytes)
+        except Exception:  # pragma: no cover
+            pass
+
+
+def _run_with_download_watchdog(load_fn, what: str):
+    """Run `load_fn` in a supervised thread; raise when its HF download stalls.
+
+    Stall detection only engages after at least one byte of observed growth
+    (a cold disk-load or a pre-restart stale blob must not trip it). An
+    absolute cap bounds even the metadata-resolve phase.
+    """
+    stall_sec = float(os.environ.get("WHISPER_DOWNLOAD_STALL_SEC", "60"))
+    max_sec = float(os.environ.get("WHISPER_DOWNLOAD_MAX_SEC", "1800"))
+    result: dict = {}
+
+    def runner() -> None:
+        try:
+            result["value"] = load_fn()
+        except BaseException as exc:  # noqa: BLE001 — re-raised below
+            result["error"] = exc
+
+    th = _threading.Thread(target=runner, name=f"model-load-{what}", daemon=True)
+    th.start()
+    t_start = _time.monotonic()
+    last_bytes = _incomplete_bytes()
+    last_growth = t_start
+    last_push = 0.0
+    grew_once = False
+
+    while th.is_alive():
+        th.join(timeout=2.0)
+        if not th.is_alive():
+            break
+        now = _time.monotonic()
+        now_bytes = _incomplete_bytes()
+        if now_bytes > last_bytes:
+            last_bytes = now_bytes
+            last_growth = now
+            grew_once = True
+        if now - last_push >= 1.0:
+            _notify_download(what, now_bytes)
+            last_push = now
+        if grew_once and now - last_growth >= stall_sec:
+            raise RuntimeError(
+                f"model download {what} stalled for {stall_sec:.0f}s "
+                f"({last_bytes} bytes) — connection to huggingface.co likely dropped"
+            )
+        if now - t_start >= max_sec:
+            raise RuntimeError(
+                f"model load {what} exceeded {max_sec:.0f}s — giving up"
+            )
+
+    if "error" in result:
+        raise result["error"]
+    _notify_download(what, last_bytes)
+    return result.get("value")
+
+
+def _load_model_with_retries(what: str, load_fn):
+    """`load_fn` with stall-watchdog + bounded retries. Terminal state is
+    mirrored into `_download_state` so /api/model/status can surface it."""
+    last_exc: Exception | None = None
+    for attempt in range(1, _MODEL_RETRY_ATTEMPTS + 1):
+        try:
+            value = _run_with_download_watchdog(load_fn, what)
+            with _download_state_lock:
+                _download_state.update(what=what, active=False, error=None)
+            return value
+        except Exception as exc:
+            last_exc = exc
+            log.warning(
+                "model.load_retry what=%s attempt=%d/%d err=%s",
+                what, attempt, _MODEL_RETRY_ATTEMPTS, exc,
+            )
+            _time.sleep(_MODEL_RETRY_BACKOFF_SEC * attempt)
+    msg = str(last_exc)
+    with _download_state_lock:
+        _download_state.update(what=what, active=False, error=msg)
+    raise RuntimeError(f"failed to load {what} after {_MODEL_RETRY_ATTEMPTS} attempts: {msg}") from last_exc
+
+
 def _device() -> str:
     return os.environ.get("WHISPER_DEVICE", "cpu")
 
@@ -137,7 +287,7 @@ def _get_fw_model(name: Optional[str]):
     from faster_whisper import WhisperModel
     import time as _t
 
-    env_name = os.environ.get("WHISPER_MODEL", "large-v3")
+    env_name = os.environ.get("WHISPER_MODEL", "small")
     resolved = name or env_name
     if resolved in _whisper_models:
         log.info("whisper.model_cached name=%s", resolved)
@@ -152,11 +302,14 @@ def _get_fw_model(name: Optional[str]):
             return _whisper_models[resolved]
         log.info("whisper.model_loading name=%s device=%s compute=%s", resolved, _device(), _compute())
         t0 = _t.perf_counter()
-        m = WhisperModel(
-            resolved,
-            device=_device(),
-            compute_type=_compute(),
-            download_root=_models_dir(),
+        m = _load_model_with_retries(
+            f"asr:{resolved}",
+            lambda: WhisperModel(
+                resolved,
+                device=_device(),
+                compute_type=_compute(),
+                download_root=_models_dir(),
+            ),
         )
         log.info("whisper.model_loaded name=%s elapsed=%.1fs", resolved, _t.perf_counter() - t0)
         _whisper_models[resolved] = m
@@ -179,10 +332,13 @@ def _get_align_model(language: str):
             return _align_models[language]
         log.info("align.model_loading lang=%s device=%s", language, _device())
         t0 = _t.perf_counter()
-        model, meta = whisperx.load_align_model(
-            language_code=language,
-            device=_device(),
-            model_dir=_models_dir(),
+        model, meta = _load_model_with_retries(
+            f"align:{language}",
+            lambda: whisperx.load_align_model(
+                language_code=language,
+                device=_device(),
+                model_dir=_models_dir(),
+            ),
         )
         log.info("align.model_loaded lang=%s elapsed=%.1fs", language, _t.perf_counter() - t0)
         _align_models[language] = (model, meta)

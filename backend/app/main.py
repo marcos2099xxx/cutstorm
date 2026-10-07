@@ -52,7 +52,11 @@ from .transcribe import (
     _synthesize_words,
     _track_activity,
     _unload_idle_models,
+    _whisper_models,
+    add_download_listener,
+    download_status,
     probe,
+    reset_download_state,
     transcribe,
     transcribe_stream,
 )
@@ -226,12 +230,14 @@ async def _orphan_loop() -> None:
 
 async def _warmup_whisper() -> None:
     """Preload the default whisper model on startup so the first real upload
-    doesn't pay the cold-load cost (~2 min for large-v3 from a mounted volume
-    on macOS Docker). Runs in a worker thread so uvicorn remains responsive
-    during warmup — /health and UI come up immediately, transcription just
-    waits on the already-holding model lock if it arrives mid-warmup."""
-    model_name = os.environ.get("WHISPER_MODEL", "large-v3")
+    doesn't pay the cold-load cost (downloads via HF when missing — progress
+    surfaces through the transcribe download-state, see /api/model/status).
+    Runs in a worker thread so uvicorn remains responsive during warmup —
+    /health and UI come up immediately, transcription just waits on the
+    already-holding model lock if it arrives mid-warmup."""
+    model_name = os.environ.get("WHISPER_MODEL", "small")
     log.info("warmup.whisper start model=%s", model_name)
+    reset_download_state()
     t0 = time.perf_counter()
     try:
         await asyncio.to_thread(_get_fw_model, model_name)
@@ -514,6 +520,18 @@ async def _run_transcribe_stream(
     def on_progress(phase: str, percent: int) -> None:
         ws.push(jid, {"phase": phase, "percent": percent, "video_id": video_id})
 
+    # Stream model-download progress (first run of a model downloads ~500 MB
+    # from HF) so the UI shows movement instead of a dead 0% bar.
+    def on_model_download(what: str, nbytes: int) -> None:
+        ws.push(jid, {
+            "phase": "model_download",
+            "video_id": video_id,
+            "what": what,
+            "downloaded_mb": round(nbytes / (1024 * 1024), 1),
+        })
+
+    remove_download_listener = add_download_listener(on_model_download)
+
     def worker() -> tuple[list[Segment], str | None]:
         return transcribe_stream(
             media,
@@ -538,6 +556,7 @@ async def _run_transcribe_stream(
         ws.push(jid, {"phase": "transcribe_error", "video_id": video_id, "error": str(exc)})
         return
     finally:
+        remove_download_listener()
         _transcribe_tasks.pop(video_id, None)
 
     if cancelled["v"]:
@@ -1318,6 +1337,111 @@ def cancel_transcribe(video_id: str) -> dict:
     return {"ok": True, "cancelled": False}
 
 
+@app.get("/api/model/status")
+def api_model_status() -> dict:
+    """State of the default (warmup-managed) whisper model: whether it's
+    loaded, mid-download (with MB counter) or failed — the UI uses this to
+    offer a manual reload instead of a dead 0% bar."""
+    st = download_status()
+    default_model = os.environ.get("WHISPER_MODEL", "small")
+    return {
+        "model": default_model,
+        "loaded": default_model in _whisper_models,
+        "downloading": st.get("active", False),
+        "what": st.get("what"),
+        "downloaded_mb": st.get("downloaded_mb", 0.0),
+        "error": st.get("error"),
+    }
+
+
+@app.post("/api/model/reload", status_code=202)
+async def api_model_reload() -> dict:
+    """Evict cached ASR/align models and re-warm the default one in the
+    background (re-downloading if the HF cache is broken). Never yanks a
+    model out from under an in-flight transcription. 202: result is
+    observable via GET /api/model/status."""
+    names = _unload_idle_models(idle_sec=0, force=True)
+    log.info("model.reload evicted=%s", names)
+    asyncio.create_task(_warmup_whisper())
+    return {"reloading": True, "evicted": names}
+
+
+@app.post("/api/transcripts/{video_id}/retranscribe", response_model=TranscribeResponse)
+async def api_retranscribe(
+    video_id: str,
+    language: str | None = Form(default=None),
+    model: str | None = Form(default=None),
+    job_id: str | None = Query(default=None),
+    x_job_id: str | None = Header(default=None),
+) -> TranscribeResponse:
+    """Re-run whisper on already-uploaded media (retry after a failed/stuck
+    transcription). language/model default to whatever the previous run used
+    (stored in meta.json). Resets meta to pending and kicks the same
+    background streaming task as a fresh upload."""
+    jid = job_id or x_job_id
+    _validate_video_id(video_id)
+    media = _find_media_file(video_id)
+    if media is None:
+        raise HTTPException(status_code=404, detail="video not found")
+
+    try:
+        meta = json.loads(_meta_path(video_id).read_text())
+    except Exception:
+        meta = {}
+    lang = language or meta.get("language") or None
+    mdl = model or meta.get("model") or None
+    jid = jid or meta.get("job_id")
+
+    # Cancel any in-flight task for this video before restarting.
+    old = _transcribe_tasks.get(video_id)
+    if old is not None:
+        old_task, old_flag = old
+        if not old_task.done():
+            old_flag["v"] = True
+            old_task.cancel()
+            log.info("retranscribe.cancelling previous task video_id=%s", video_id)
+
+    cache_key = json.dumps({"model": mdl, "language": lang}, sort_keys=True)
+    info = probe(media)
+    reset_meta = json.loads(TranscribeResponse(
+        video_id=video_id,
+        duration=info.duration,
+        width=info.width,
+        height=info.height,
+        # Keep the previous run's language hint so a second retry after a
+        # failure still has it (auto-detect runs again when it's None).
+        language=lang,
+        segments=[],
+        original_filename=meta.get("original_filename"),
+        model=mdl,
+        is_audio_only=info.is_audio_only,
+        status="pending",
+        percent=0,
+        job_id=jid,
+    ).model_dump_json())
+    reset_meta["_cache_key"] = "__pending__"
+    _meta_path(video_id).write_text(json.dumps(reset_meta))
+
+    loop = asyncio.get_running_loop()
+    cancel_flag: dict = {"v": False}
+    task = loop.create_task(_run_transcribe_stream(
+        video_id=video_id,
+        media=media,
+        language=lang,
+        model=mdl,
+        jid=jid,
+        cache_key=cache_key,
+        meta_template={"original_filename": meta.get("original_filename")},
+        cancelled=cancel_flag,
+    ))
+    _transcribe_tasks[video_id] = (task, cancel_flag)
+    log.info(
+        "retranscribe.start video_id=%s language=%s model=%s job_id=%s",
+        video_id, lang, mdl, jid,
+    )
+    return TranscribeResponse(**reset_meta)
+
+
 @app.get("/api/video/{video_id}")
 def api_video(video_id: str) -> FileResponse:
     _validate_video_id(video_id)
@@ -1482,6 +1606,16 @@ async def api_transcribe_extra(
             cancel_check=cancel_check,
         )
 
+    def on_model_download(what: str, nbytes: int) -> None:
+        ws.push(jid, {
+            "phase": "model_download",
+            "extra_audio_id": extra_audio_id,
+            "what": what,
+            "downloaded_mb": round(nbytes / (1024 * 1024), 1),
+        })
+
+    remove_download_listener = add_download_listener(on_model_download)
+
     try:
         segments, detected = await asyncio.to_thread(worker)
     except Exception as exc:
@@ -1489,6 +1623,8 @@ async def api_transcribe_extra(
         log.exception("transcribe_extra.failed id=%s err=%s", extra_audio_id, exc)
         ws.push(jid, {"phase": "extra_transcribe_error", "extra_audio_id": extra_audio_id, "error": str(exc)})
         raise HTTPException(status_code=500, detail=f"extra transcribe failed: {exc}")
+    finally:
+        remove_download_listener()
 
     # Drop our slot before notifying — by the time the client reads the
     # response, the cancel flag is no longer relevant.
