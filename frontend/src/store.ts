@@ -45,6 +45,7 @@ export type ProgressPhase =
   | "idle"
   | "upload"
   | "download"
+  | "model_download"
   | "transcribe"
   | "align"
   | "encode"
@@ -124,6 +125,9 @@ type State = {
   error: string | null;
   progressPhase: ProgressPhase;
   progressPercent: number;
+  /** Extra detail for the progress bar, e.g. "{mb} MB" while a model
+   * download streams (no percent known — the total size isn't). */
+  progressDetail: string | null;
   currentTime: number;
   videoEl: HTMLMediaElement | null;
   /** Preview mode: play the clip with silence cuts applied (skips gaps). */
@@ -192,6 +196,7 @@ type Actions = {
   setBusy: (b: State["busy"]) => void;
   setError: (msg: string | null) => void;
   setProgress: (phase: ProgressPhase, percent: number) => void;
+  setProgressDetail: (detail: string | null) => void;
   setCurrentTime: (t: number) => void;
   setVideoEl: (el: HTMLMediaElement | null) => void;
   setPreviewCut: (v: boolean) => void;
@@ -264,6 +269,7 @@ export const useStore = create<State & Actions>()(
       error: null,
       progressPhase: "idle",
       progressPercent: 0,
+      progressDetail: null,
       currentTime: 0,
       videoEl: null,
       previewCut: false,
@@ -430,6 +436,7 @@ export const useStore = create<State & Actions>()(
       setBusy: (b) => set({ busy: b }),
       setError: (msg) => set({ error: msg }),
       setProgress: (phase, percent) => set({ progressPhase: phase, progressPercent: percent }),
+      setProgressDetail: (detail) => set({ progressDetail: detail }),
       setCurrentTime: (t) => set({ currentTime: t }),
       setVideoEl: (el) => set({ videoEl: el }),
       setPreviewCut: (v) => set({ previewCut: v }),
@@ -621,6 +628,7 @@ export const useStore = create<State & Actions>()(
           error: null,
           progressPhase: "idle",
           progressPercent: 0,
+          progressDetail: null,
           currentTime: 0,
           isAudioOnly: false,
           subsStreaming: false,

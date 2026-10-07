@@ -399,3 +399,43 @@ export async function cancelTranscribeExtra(extraAudioId: string): Promise<boole
     return false;
   }
 }
+
+export type ModelStatus = {
+  model: string;
+  loaded: boolean;
+  downloading: boolean;
+  what: string | null;
+  downloaded_mb: number;
+  error: string | null;
+};
+
+export async function getModelStatus(): Promise<ModelStatus> {
+  const res = await fetch(`${API_BASE}/api/model/status`);
+  if (!res.ok) throw new Error(`model status failed: ${res.status}`);
+  return res.json();
+}
+
+export async function reloadModel(): Promise<{ reloading: boolean; evicted: string[] }> {
+  const res = await fetch(`${API_BASE}/api/model/reload`, { method: "POST" });
+  if (!res.ok) throw new Error(`model reload failed: ${res.status}`);
+  return res.json();
+}
+
+export async function retranscribe(
+  videoId: string,
+  opts: { language?: string; model?: string; jobId?: string } = {},
+): Promise<TranscribeResult> {
+  const fd = new FormData();
+  if (opts.language) fd.append("language", opts.language);
+  if (opts.model) fd.append("model", opts.model);
+  const qs = opts.jobId ? `?job_id=${encodeURIComponent(opts.jobId)}` : "";
+  const res = await fetch(
+    `${API_BASE}/api/transcripts/${encodeURIComponent(videoId)}/retranscribe${qs}`,
+    { method: "POST", body: fd },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`retranscribe failed: ${res.status} ${detail}`);
+  }
+  return res.json();
+}

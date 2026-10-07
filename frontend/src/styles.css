@@ -1800,6 +1800,24 @@ label {
   font-weight: 500;
 }
 
+/* Whisper model download/watchdog status line under the quality selector. */
+.model-status {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.model-status-error {
+  color: var(--danger, #e5484d);
+}
+
+.model-status .link {
+  font-size: 12px;
+}
+
 /* Reusable iOS-style switch, minimal chrome, yellow accent when ON. */
 .switch {
   position: relative;

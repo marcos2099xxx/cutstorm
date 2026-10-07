@@ -1,5 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { cancelFetchUrl, fetchVideoFromUrl, uploadVideo, videoUrl } from "../api";
+import {
+  cancelFetchUrl,
+  fetchVideoFromUrl,
+  getModelStatus,
+  reloadModel,
+  uploadVideo,
+  videoUrl,
+  type ModelStatus,
+} from "../api";
 import type { Locale } from "../i18n";
 import { LANGUAGES, PINNED_LANGUAGES } from "../languages";
 import { newJobId, openProgressWs } from "../progress";
@@ -43,7 +51,7 @@ export function Uploader() {
   const t = useT();
   const [language, setLanguage] = useState<string>(locale === "es" ? "es" : "en");
   const [langTouched, setLangTouched] = useState(false);
-  const [model, setModel] = useState<string>("large-v3");
+  const [model, setModel] = useState<string>("small");
   const [dragActive, setDragActive] = useState(false);
   const [urlValue, setUrlValue] = useState("");
   const abortRef = useRef<AbortController | null>(null);
@@ -355,6 +363,7 @@ export function Uploader() {
                   ))}
                 </select>
               </label>
+              <ModelStatusChip />
             </div>
           )}
         </div>
@@ -370,6 +379,75 @@ type LangSelectProps = {
   disabled?: boolean;
   locale: Locale;
 };
+
+const MODEL_POLL_MS = 2000;
+
+/**
+ * Live status of the default whisper model (the warmup-managed one): a
+ * download counter while HF fetch is in flight, or an error + manual reload
+ * button when the last load failed (e.g. stalled download). Hidden when
+ * everything is fine to keep the start screen quiet.
+ */
+function ModelStatusChip() {
+  const [status, setStatus] = useState<ModelStatus | null>(null);
+  const [reloading, setReloading] = useState(false);
+  const t = useT();
+
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const st = await getModelStatus();
+        if (!alive) return;
+        setStatus(st);
+        if (st.loaded || !st.downloading) setReloading(false);
+      } catch {
+        /* transient — next tick retries */
+      }
+      if (alive) window.setTimeout(() => void poll(), MODEL_POLL_MS);
+    };
+    void poll();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (!status) return null;
+
+  const busy = status.downloading || reloading;
+
+  if (busy) {
+    return (
+      <div className="model-status" data-testid="model-status" data-state="downloading">
+        {t("Model {name}: downloading… {mb} MB", {
+          name: status.model,
+          mb: status.downloaded_mb,
+        })}
+      </div>
+    );
+  }
+
+  if (status.error) {
+    return (
+      <div className="model-status model-status-error" data-testid="model-status" data-state="error">
+        <span>{t("Model {name}: download failed", { name: status.model })}</span>
+        <button
+          type="button"
+          className="link"
+          data-testid="model-reload"
+          onClick={() => {
+            setReloading(true);
+            void reloadModel().catch(() => setReloading(false));
+          }}
+        >
+          {t("Reload model")}
+        </button>
+      </div>
+    );
+  }
+
+  return null;
+}
 
 const POPOVER_MAX_H = 320;
 const POPOVER_MIN_W = 280;

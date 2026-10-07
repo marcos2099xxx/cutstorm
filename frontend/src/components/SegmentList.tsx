@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
-import { importSubtitles } from "../api";
+import { importSubtitles, retranscribe } from "../api";
 import { getAudioMix } from "../audioMix";
 import { newJobId, openProgressWs } from "../progress";
 import { useStore } from "../store";
+import { downloadSubtitles } from "../subsExport";
 import { useT } from "../useT";
 
 function fmtTimestamp(t: number): string {
@@ -36,6 +37,9 @@ export function SegmentList() {
   const seekTo = useStore((s) => s.seekTo);
   const setError = useStore((s) => s.setError);
   const setProgress = useStore((s) => s.setProgress);
+  const setProgressDetail = useStore((s) => s.setProgressDetail);
+  const setJobId = useStore((s) => s.setJobId);
+  const setSubsStreaming = useStore((s) => s.setSubsStreaming);
   const replaceSourceSegments = useStore((s) => s.replaceSourceSegments);
   const replaceInSegments = useStore((s) => s.replaceInSegments);
   const mergeSegmentWithNext = useStore((s) => s.mergeSegmentWithNext);
@@ -47,6 +51,7 @@ export function SegmentList() {
   const [replaceText, setReplaceText] = useState("");
   const [alignImport, setAlignImport] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
 
   if (!hasVideo) return null;
@@ -94,6 +99,37 @@ export function SegmentList() {
     } finally {
       try { ws?.close(); } catch { /* */ }
       setImporting(false);
+    }
+  }
+
+  /** Re-run whisper on the already-uploaded media (retry after a failed or
+   * interrupted transcription). Streams segments via WS like the upload flow. */
+  async function onRetryTranscribe() {
+    if (!videoId) return;
+    setRetrying(true);
+    setError(null);
+    setProgressDetail(null);
+    const jobId = newJobId();
+    setJobId(jobId);
+    let ws: WebSocket | null = null;
+    try {
+      ws = await openProgressWs(jobId);
+      setSubtitleTrack("source");
+      const res = await retranscribe(videoId, { jobId });
+      if ((res.segments?.length ?? 0) === 0) {
+        setSubsStreaming(true);
+        setProgress("transcribe", 0);
+      } else {
+        replaceSourceSegments(res.segments);
+        setProgress("done", 100);
+        ws.close();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setProgress("idle", 0);
+      try { ws?.close(); } catch { /* */ }
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -179,6 +215,26 @@ export function SegmentList() {
         >
           {importing ? t("Importing…") : t("Import .srt/.vtt")}
         </button>
+        <button
+          type="button"
+          className="segment-tool"
+          data-testid="export-srt-button"
+          disabled={segments.length === 0}
+          onClick={() => downloadSubtitles(segments, "srt", `${videoId ?? "transcript"}.srt`)}
+          title={t("Download the current transcript as an .srt file")}
+        >
+          {t("Export .srt")}
+        </button>
+        <button
+          type="button"
+          className="segment-tool"
+          data-testid="export-vtt-button"
+          disabled={segments.length === 0}
+          onClick={() => downloadSubtitles(segments, "vtt", `${videoId ?? "transcript"}.vtt`)}
+          title={t("Download the current transcript as a .vtt file")}
+        >
+          {t("Export .vtt")}
+        </button>
         <label
           className="segment-align"
           title={t("Run forced alignment against the audio for accurate word timings (slower)")}
@@ -252,9 +308,22 @@ export function SegmentList() {
               <div className="transcribing-hint">{t("Segments will appear here as they're recognised.")}</div>
             </div>
           ) : (
-            <p style={{ color: "var(--fg-muted)", fontSize: 13 }}>
-              {t("No speech detected yet.")}
-            </p>
+            <div className="transcribing-empty" data-testid="no-speech-empty">
+              <p style={{ color: "var(--fg-muted)", fontSize: 13 }}>
+                {t("No speech detected yet.")}
+              </p>
+              {!subsStreaming && (
+                <button
+                  type="button"
+                  className="secondary"
+                  data-testid="retry-transcribe-button"
+                  disabled={retrying}
+                  onClick={() => void onRetryTranscribe()}
+                >
+                  {retrying ? t("Retrying…") : t("Retry transcription")}
+                </button>
+              )}
+            </div>
           )
         ) : rows.length === 0 ? (
           <p style={{ color: "var(--fg-muted)", fontSize: 13 }} data-testid="segment-search-empty">

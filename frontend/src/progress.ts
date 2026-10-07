@@ -32,6 +32,7 @@ export function openProgressWs(jobId: string): Promise<WebSocket> {
         store.setSubsStreaming(false);
         store.setJobId(null);
         store.setProgress("done", 100);
+        store.setProgressDetail(null);
         setTimeout(() => ws.close(), 100);
         return;
       }
@@ -39,7 +40,20 @@ export function openProgressWs(jobId: string): Promise<WebSocket> {
       if (msg?.phase === "transcribe_cancelled" || msg?.phase === "transcribe_error") {
         store.setSubsStreaming(false);
         store.setJobId(null);
+        store.setProgressDetail(null);
+        if (msg?.phase === "transcribe_error") {
+          store.setError(msg.error || "Transcription failed.");
+        }
+        store.setProgress("idle", 0);
         setTimeout(() => ws.close(), 100);
+        return;
+      }
+
+      // Whisper/alignment model is still downloading from HuggingFace (first
+      // run of a model). No percent is known — show the MB counter instead.
+      if (msg?.phase === "model_download") {
+        store.setProgress("model_download", 0);
+        store.setProgressDetail(`${msg.downloaded_mb ?? 0} MB`);
         return;
       }
 
@@ -80,6 +94,11 @@ export function openProgressWs(jobId: string): Promise<WebSocket> {
       ) {
         store.setExtraSubsStreaming(false);
         store.setJobId(null);
+        store.setProgressDetail(null);
+        if (msg?.phase === "extra_transcribe_error") {
+          store.setError(msg.error || "Transcription failed.");
+        }
+        store.setProgress("idle", 0);
         setTimeout(() => ws.close(), 100);
         return;
       }

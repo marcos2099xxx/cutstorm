@@ -4,6 +4,7 @@ import { useT } from "../useT";
 const PHASE_KEY: Record<string, string> = {
   upload: "Uploading",
   download: "Downloading",
+  model_download: "Downloading model",
   transcribe: "Transcribing",
   align: "Aligning words",
   encode: "Rendering",
@@ -12,6 +13,7 @@ const PHASE_KEY: Record<string, string> = {
 export function ProgressBar() {
   const phase = useStore((s) => s.progressPhase);
   const percent = useStore((s) => s.progressPercent);
+  const detail = useStore((s) => s.progressDetail);
   const t = useT();
 
   if (phase === "idle" || phase === "done") return null;
@@ -24,7 +26,10 @@ export function ProgressBar() {
       data-progress={percent}
     >
       <div className="progress-header">
-        <span>{t(PHASE_KEY[phase] ?? phase)}</span>
+        <span>
+          {t(PHASE_KEY[phase] ?? phase)}
+          {detail ? ` · ${detail}` : ""}
+        </span>
         <span>{percent}%</span>
       </div>
       <div className="progress-bar-track">

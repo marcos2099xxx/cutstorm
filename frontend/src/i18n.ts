@@ -46,6 +46,15 @@ const ES: Record<string, string> = {
   "High · 720px · 20fps": "Alta · 720px · 20fps",
   "{n} segment": "{n} segmento",
   "{n} segments": "{n} segmentos",
+  "Model {name}: downloading… {mb} MB": "Modelo {name}: descargando… {mb} MB",
+  "Model {name}: download failed": "Modelo {name}: descarga fallida",
+  "Reload model": "Recargar modelo",
+  "Retry transcription": "Reintentar transcripción",
+  "Retrying…": "Reintentando…",
+  "Export .srt": "Exportar .srt",
+  "Export .vtt": "Exportar .vtt",
+  "Download the current transcript as an .srt file": "Descarga la transcripción actual como archivo .srt",
+  "Download the current transcript as a .vtt file": "Descarga la transcripción actual como archivo .vtt",
 
   // ---- undo/redo ----
   "Undo": "Deshacer",
@@ -67,6 +76,7 @@ const ES: Record<string, string> = {
   // ---- progress phases ----
   "Uploading": "Subiendo",
   "Downloading": "Descargando",
+  "Downloading model": "Descargando modelo",
   "Transcribing": "Transcribiendo",
   "Aligning words": "Alineando palabras",
   "Rendering": "Renderizando",
